@@ -1,32 +1,41 @@
 from flask import Flask, render_template, request, redirect, session
 import sqlite3
 import os
-import json
 import urllib.request
 import urllib.error
 import urllib.parse
 
 app = Flask(__name__)
-app.secret_key = "heara-development-key"
+app.secret_key = os.environ.get("SECRET_KEY", "heara-development-key")
 
+DATABASE = "database.db"
 
-# ============================================================
-# DATABASE
-# ============================================================
+VIDEO_CATEGORIES = {
+    "For You": "funny people comedy entertainment",
+    "Comedy": "funny comedy humor people laughing",
+    "Dance": "dance dancing people performance",
+    "Music": "music singer musician performance",
+    "Sports": "sports football basketball athletic",
+    "Africa": "Africa African people culture",
+    "Nigeria": "Nigeria Nigerian people Lagos",
+    "Food": "food cooking restaurant street food",
+    "Animals": "funny animals pets dogs cats",
+    "Travel": "travel adventure vacation people",
+    "Fitness": "fitness workout exercise people",
+    "Lifestyle": "lifestyle people fashion daily life",
+    "Motivation": "motivation success people inspirational",
+    "Entertainment": "entertainment actor performer people"
+}
+
 
 def get_db():
-    connection = sqlite3.connect("database.db")
+    connection = sqlite3.connect(DATABASE)
     connection.row_factory = sqlite3.Row
     return connection
 
 
 def init_db():
-
     connection = get_db()
-
-    # --------------------------------------------------------
-    # USERS
-    # --------------------------------------------------------
 
     connection.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -36,10 +45,6 @@ def init_db():
             password TEXT NOT NULL
         )
     """)
-
-    # --------------------------------------------------------
-    # POSTS
-    # --------------------------------------------------------
 
     connection.execute("""
         CREATE TABLE IF NOT EXISTS posts (
@@ -51,10 +56,6 @@ def init_db():
         )
     """)
 
-    # --------------------------------------------------------
-    # POST LIKES
-    # --------------------------------------------------------
-
     connection.execute("""
         CREATE TABLE IF NOT EXISTS likes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,10 +64,6 @@ def init_db():
             UNIQUE(user_id, post_id)
         )
     """)
-
-    # --------------------------------------------------------
-    # POST COMMENTS
-    # --------------------------------------------------------
 
     connection.execute("""
         CREATE TABLE IF NOT EXISTS comments (
@@ -77,10 +74,6 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-
-    # --------------------------------------------------------
-    # FOLLOWS
-    # --------------------------------------------------------
 
     connection.execute("""
         CREATE TABLE IF NOT EXISTS follows (
@@ -95,337 +88,128 @@ def init_db():
     connection.close()
 
 
-# ============================================================
-# HEARA VIDEO SYSTEM
-# ============================================================
+def get_pexels_videos(query, page=1, per_page=20):
+    api_key = os.environ.get("PEXELS_API_KEY")
 
-VIDEO_CATEGORIES = {
-
-    "For You":
-        "funny people comedy entertainment",
-
-    "Comedy":
-        "funny comedy humor people laughing",
-
-    "Dance":
-        "dance dancing people performance",
-
-    "Music":
-        "music singer musician performance",
-
-    "Sports":
-        "sports football basketball athletic",
-
-    "Africa":
-        "Africa African people culture",
-
-    "Nigeria":
-        "Nigeria Nigerian people Lagos",
-
-    "Food":
-        "food cooking restaurant street food",
-
-    "Animals":
-        "funny animals pets dogs cats",
-
-    "Travel":
-        "travel adventure vacation people",
-
-    "Fitness":
-        "fitness workout exercise people",
-
-    "Lifestyle":
-        "lifestyle people fashion daily life",
-
-    "Motivation":
-        "motivation success people inspirational",
-
-    "Entertainment":
-        "entertainment actor performer people"
-}
-
-
-def get_pexels_videos(
-    query,
-    page=1,
-    per_page=20
-):
-
-    api_key = os.environ.get(
-        "PEXELS_API_KEY"
-    )
-
-    # No API key
     if not api_key:
-        print(
-            "PEXELS_API_KEY is not set."
-        )
         return []
 
-    encoded_query = urllib.parse.quote(
-        query
-    )
+    encoded_query = urllib.parse.quote(query)
 
     url = (
         "https://api.pexels.com/v1/videos/search"
         f"?query={encoded_query}"
-        "&orientation=portrait"
         f"&page={page}"
         f"&per_page={per_page}"
+        "&orientation=portrait"
     )
 
-    api_request = urllib.request.Request(
-
+    request_object = urllib.request.Request(
         url,
-
         headers={
             "Authorization": api_key
         }
     )
 
     try:
+        with urllib.request.urlopen(request_object, timeout=15) as response:
+            data = response.read().decode("utf-8")
 
-        with urllib.request.urlopen(
-            api_request,
-            timeout=20
-        ) as response:
-
-            data = json.loads(
-                response
-                .read()
-                .decode("utf-8")
-            )
+        import json
+        data = json.loads(data)
 
         videos = []
 
-        for video in data.get(
-            "videos",
-            []
-        ):
+        for video in data.get("videos", []):
+            files = video.get("video_files", [])
 
-            files = video.get(
-                "video_files",
-                []
-            )
+            portrait_file = None
 
-            if not files:
+            for video_file in files:
+                width = video_file.get("width") or 0
+                height = video_file.get("height") or 0
+
+                if height > width:
+                    portrait_file = video_file
+                    break
+
+            if not portrait_file and files:
+                portrait_file = files[0]
+
+            if not portrait_file:
                 continue
 
-            # Prefer vertical/portrait videos
-            portrait_files = [
-
-                file
-
-                for file in files
-
-                if file.get("height", 0)
-                >
-                file.get("width", 0)
-
-            ]
-
-            if portrait_files:
-
-                selected_file = max(
-                    portrait_files,
-                    key=lambda file:
-                    file.get(
-                        "height",
-                        0
-                    )
-                )
-
-            else:
-
-                selected_file = max(
-                    files,
-                    key=lambda file:
-                    file.get(
-                        "height",
-                        0
-                    )
-                )
-
-            creator = video.get(
-                "user",
-                {}
-            )
-
-            creator_name = creator.get(
-                "name",
-                "Pexels Creator"
-            )
-
-            creator_url = creator.get(
-                "url",
-                "https://www.pexels.com/"
-            )
+            user = video.get("user", {})
 
             videos.append({
-
-                "id":
-                    video.get("id"),
-
-                "url":
-                    selected_file.get(
-                        "link"
-                    ),
-
-                "thumbnail":
-                    video.get(
-                        "image"
-                    ),
-
-                "width":
-                    selected_file.get(
-                        "width"
-                    ),
-
-                "height":
-                    selected_file.get(
-                        "height"
-                    ),
-
-                "duration":
-                    video.get(
-                        "duration",
-                        0
-                    ),
-
-                "creator":
-                    creator_name,
-
-                "creator_url":
-                    creator_url,
-
-                "source_url":
-                    video.get(
-                        "url",
-                        "https://www.pexels.com/"
-                    )
+                "id": video.get("id"),
+                "url": portrait_file.get("link"),
+                "thumbnail": video.get("image"),
+                "width": portrait_file.get("width"),
+                "height": portrait_file.get("height"),
+                "duration": video.get("duration"),
+                "creator": user.get("name", "Pexels Creator"),
+                "creator_url": user.get("url", ""),
+                "source_url": video.get("url", "")
             })
 
         return videos
 
     except urllib.error.HTTPError as error:
-
-        print(
-            "Pexels HTTP error:",
-            error.code
-        )
-
+        print("Pexels HTTP error:", error.code)
         return []
 
     except urllib.error.URLError as error:
-
-        print(
-            "Pexels connection error:",
-            error
-        )
-
+        print("Pexels connection error:", error)
         return []
 
     except Exception as error:
-
-        print(
-            "Pexels error:",
-            error
-        )
-
+        print("Pexels error:", error)
         return []
 
 
-# ============================================================
-# LANDING PAGE
-# ============================================================
-
 @app.route("/")
 def home():
-
-    return render_template(
-        "index.html"
-    )
+    return render_template("index.html")
 
 
-# ============================================================
-# REGISTER
-# ============================================================
-
-@app.route(
-    "/register",
-    methods=["GET", "POST"]
-)
+@app.route("/register", methods=["GET", "POST"])
 def register():
-
     if request.method == "POST":
+        username = request.form["username"].strip()
+        email = request.form["email"].strip()
+        password = request.form["password"]
 
-        username = request.form[
-            "username"
-        ].strip()
-
-        email = request.form[
-            "email"
-        ].strip()
-
-        password = request.form[
-            "password"
-        ]
+        if not username or not email or not password:
+            return "Please complete all fields."
 
         try:
-
             connection = get_db()
 
             connection.execute(
                 """
-                INSERT INTO users
-                (username, email, password)
+                INSERT INTO users (username, email, password)
                 VALUES (?, ?, ?)
                 """,
-
-                (
-                    username,
-                    email,
-                    password
-                )
+                (username, email, password)
             )
 
             connection.commit()
             connection.close()
 
-            return redirect(
-                "/login"
-            )
+            return redirect("/login")
 
         except sqlite3.IntegrityError:
+            return "Username or email already exists."
 
-            return (
-                "Username or email already exists."
-            )
-
-    return render_template(
-        "register.html"
-    )
+    return render_template("register.html")
 
 
-# ============================================================
-# LOGIN
-# ============================================================
-
-@app.route(
-    "/login",
-    methods=["GET", "POST"]
-)
+@app.route("/login", methods=["GET", "POST"])
 def login():
-
     if request.method == "POST":
-
-        username = request.form[
-            "username"
-        ]
-
-        password = request.form[
-            "password"
-        ]
+        username = request.form["username"].strip()
+        password = request.form["password"]
 
         connection = get_db()
 
@@ -433,216 +217,112 @@ def login():
             """
             SELECT id, username
             FROM users
-            WHERE username = ?
-            AND password = ?
+            WHERE username = ? AND password = ?
             """,
-
-            (
-                username,
-                password
-            )
+            (username, password)
         ).fetchone()
 
         connection.close()
 
         if user:
+            session["user_id"] = user["id"]
+            session["username"] = user["username"]
 
-            session[
-                "user_id"
-            ] = user["id"]
+            return redirect("/home")
 
-            session[
-                "username"
-            ] = user["username"]
+        return "Incorrect username or password."
 
-            return redirect(
-                "/home"
-            )
+    return render_template("login.html")
 
-        return (
-            "Incorrect username or password."
-        )
-
-    return render_template(
-        "login.html"
-    )
-
-
-# ============================================================
-# HOME FEED
-# ============================================================
 
 @app.route("/home")
 def user_home():
-
     if "user_id" not in session:
-
-        return redirect(
-            "/login"
-        )
+        return redirect("/login")
 
     connection = get_db()
 
-    posts = connection.execute(
-        """
+    posts = connection.execute("""
         SELECT
             posts.id,
             posts.user_id,
             posts.content,
             posts.created_at,
             users.username,
-            COUNT(
-                DISTINCT likes.id
-            ) AS like_count
-
+            COUNT(DISTINCT likes.id) AS like_count
         FROM posts
-
-        JOIN users
-        ON posts.user_id = users.id
-
-        LEFT JOIN likes
-        ON posts.id = likes.post_id
-
+        JOIN users ON posts.user_id = users.id
+        LEFT JOIN likes ON posts.id = likes.post_id
         GROUP BY posts.id
-
         ORDER BY posts.id DESC
-        """
-    ).fetchall()
+    """).fetchall()
 
-    comments = connection.execute(
-        """
+    comments = connection.execute("""
         SELECT
             comments.post_id,
             comments.content,
             comments.created_at,
             users.username
-
         FROM comments
-
-        JOIN users
-        ON comments.user_id = users.id
-
+        JOIN users ON comments.user_id = users.id
         ORDER BY comments.id ASC
-        """
-    ).fetchall()
+    """).fetchall()
 
-    users = connection.execute(
-        """
+    users = connection.execute("""
         SELECT id, username
         FROM users
-
         WHERE id != ?
-
         ORDER BY username
-        """,
+    """, (session["user_id"],)).fetchall()
 
-        (
-            session["user_id"],
-        )
-    ).fetchall()
-
-    following = connection.execute(
-        """
+    following = connection.execute("""
         SELECT following_id
         FROM follows
-
         WHERE follower_id = ?
-        """,
+    """, (session["user_id"],)).fetchall()
 
-        (
-            session["user_id"],
-        )
-    ).fetchall()
-
-    following_ids = [
-
-        row["following_id"]
-
-        for row in following
-
-    ]
+    following_ids = [row["following_id"] for row in following]
 
     connection.close()
 
     return render_template(
-
         "home.html",
-
-        username=session[
-            "username"
-        ],
-
+        username=session["username"],
         posts=posts,
-
         comments=comments,
-
         users=users,
-
         following_ids=following_ids
-
     )
 
 
-# ============================================================
-# CREATE POST
-# ============================================================
-
-@app.route(
-    "/create-post",
-    methods=["POST"]
-)
+@app.route("/create-post", methods=["POST"])
 def create_post():
-
     if "user_id" not in session:
+        return redirect("/login")
 
-        return redirect(
-            "/login"
-        )
-
-    content = request.form[
-        "content"
-    ].strip()
+    content = request.form["content"].strip()
 
     if content:
-
         connection = get_db()
 
         connection.execute(
             """
-            INSERT INTO posts
-            (user_id, content)
+            INSERT INTO posts (user_id, content)
             VALUES (?, ?)
             """,
-
-            (
-                session["user_id"],
-                content
-            )
+            (session["user_id"], content)
         )
 
         connection.commit()
         connection.close()
 
-    return redirect(
-        "/home"
-    )
+    return redirect("/home")
 
 
-# ============================================================
-# LIKE POST
-# ============================================================
-
-@app.route(
-    "/like/<int:post_id>",
-    methods=["POST"]
-)
+@app.route("/like/<int:post_id>", methods=["POST"])
 def like_post(post_id):
-
     if "user_id" not in session:
-
-        return redirect(
-            "/login"
-        )
+        return redirect("/login")
 
     connection = get_db()
 
@@ -650,75 +330,39 @@ def like_post(post_id):
         """
         SELECT id
         FROM likes
-
-        WHERE user_id = ?
-        AND post_id = ?
+        WHERE user_id = ? AND post_id = ?
         """,
-
-        (
-            session["user_id"],
-            post_id
-        )
+        (session["user_id"], post_id)
     ).fetchone()
 
     if existing:
-
         connection.execute(
-            """
-            DELETE FROM likes
-            WHERE id = ?
-            """,
-
-            (
-                existing["id"],
-            )
+            "DELETE FROM likes WHERE id = ?",
+            (existing["id"],)
         )
-
     else:
-
         connection.execute(
             """
-            INSERT INTO likes
-            (user_id, post_id)
+            INSERT INTO likes (user_id, post_id)
             VALUES (?, ?)
             """,
-
-            (
-                session["user_id"],
-                post_id
-            )
+            (session["user_id"], post_id)
         )
 
     connection.commit()
     connection.close()
 
-    return redirect(
-        "/home"
-    )
+    return redirect("/home")
 
 
-# ============================================================
-# COMMENT
-# ============================================================
-
-@app.route(
-    "/comment/<int:post_id>",
-    methods=["POST"]
-)
+@app.route("/comment/<int:post_id>", methods=["POST"])
 def comment(post_id):
-
     if "user_id" not in session:
+        return redirect("/login")
 
-        return redirect(
-            "/login"
-        )
-
-    content = request.form[
-        "content"
-    ].strip()
+    content = request.form["content"].strip()
 
     if content:
-
         connection = get_db()
 
         connection.execute(
@@ -727,45 +371,22 @@ def comment(post_id):
             (user_id, post_id, content)
             VALUES (?, ?, ?)
             """,
-
-            (
-                session["user_id"],
-                post_id,
-                content
-            )
+            (session["user_id"], post_id, content)
         )
 
         connection.commit()
         connection.close()
 
-    return redirect(
-        "/home"
-    )
+    return redirect("/home")
 
 
-# ============================================================
-# FOLLOW
-# ============================================================
-
-@app.route(
-    "/follow/<int:user_id>",
-    methods=["POST"]
-)
+@app.route("/follow/<int:user_id>", methods=["POST"])
 def follow(user_id):
-
     if "user_id" not in session:
+        return redirect("/login")
 
-        return redirect(
-            "/login"
-        )
-
-    if user_id == session[
-        "user_id"
-    ]:
-
-        return redirect(
-            "/home"
-        )
+    if user_id == session["user_id"]:
+        return redirect("/home")
 
     connection = get_db()
 
@@ -773,233 +394,164 @@ def follow(user_id):
         """
         SELECT id
         FROM follows
-
-        WHERE follower_id = ?
-        AND following_id = ?
+        WHERE follower_id = ? AND following_id = ?
         """,
-
-        (
-            session["user_id"],
-            user_id
-        )
+        (session["user_id"], user_id)
     ).fetchone()
 
     if existing:
-
         connection.execute(
-            """
-            DELETE FROM follows
-            WHERE id = ?
-            """,
-
-            (
-                existing["id"],
-            )
+            "DELETE FROM follows WHERE id = ?",
+            (existing["id"],)
         )
-
     else:
-
         connection.execute(
             """
-            INSERT INTO follows
-            (follower_id, following_id)
+            INSERT INTO follows (follower_id, following_id)
             VALUES (?, ?)
             """,
-
-            (
-                session["user_id"],
-                user_id
-            )
+            (session["user_id"], user_id)
         )
 
     connection.commit()
     connection.close()
 
-    return redirect(
-        "/home"
-    )
+    return redirect("/home")
 
-
-# ============================================================
-# PROFILE
-# ============================================================
 
 @app.route("/profile")
 def profile():
-
     if "user_id" not in session:
-
-        return redirect(
-            "/login"
-        )
+        return redirect("/login")
 
     connection = get_db()
 
     user = connection.execute(
         """
-        SELECT
-            id,
-            username,
-            email
-
+        SELECT id, username, email
         FROM users
-
         WHERE id = ?
         """,
-
-        (
-            session["user_id"],
-        )
+        (session["user_id"],)
     ).fetchone()
 
     post_count = connection.execute(
         """
         SELECT COUNT(*) AS count
-
         FROM posts
-
         WHERE user_id = ?
         """,
-
-        (
-            session["user_id"],
-        )
+        (session["user_id"],)
     ).fetchone()["count"]
 
     follower_count = connection.execute(
         """
         SELECT COUNT(*) AS count
-
         FROM follows
-
         WHERE following_id = ?
         """,
-
-        (
-            session["user_id"],
-        )
+        (session["user_id"],)
     ).fetchone()["count"]
 
     following_count = connection.execute(
         """
         SELECT COUNT(*) AS count
-
         FROM follows
-
         WHERE follower_id = ?
         """,
-
-        (
-            session["user_id"],
-        )
+        (session["user_id"],)
     ).fetchone()["count"]
 
     connection.close()
 
     return render_template(
-
         "profile.html",
-
         user=user,
-
         post_count=post_count,
-
         follower_count=follower_count,
-
         following_count=following_count
-
     )
 
-
-# ============================================================
-# HEARA VIDEOS
-# ============================================================
 
 @app.route("/videos")
 def videos():
-
-    # The video page can be viewed after login.
     if "user_id" not in session:
+        return redirect("/login")
 
-        return redirect(
-            "/login"
-        )
+    category = request.args.get("category", "For You")
+    search_query = request.args.get("q", "").strip()
 
-    # Category selected by user
-    category = request.args.get(
-        "category",
-        "For You"
-    )
-
-    # Search text
-    search_query = request.args.get(
-        "q",
-        ""
-    ).strip()
-
-    # Decide what Pexels should search
     if search_query:
-
         query = search_query
-
     else:
-
         query = VIDEO_CATEGORIES.get(
             category,
-            VIDEO_CATEGORIES[
-                "For You"
-            ]
+            VIDEO_CATEGORIES["For You"]
         )
 
-    # Get videos
-    videos = get_pexels_videos(
-
-        query=query,
-
-        page=1,
-
-        per_page=20
-
-    )
+    video_list = get_pexels_videos(query)
 
     return render_template(
-
         "videos.html",
-
-        videos=videos,
-
-        categories=
-            VIDEO_CATEGORIES.keys(),
-
-        current_category=
-            category,
-
-        search_query=
-            search_query
-
+        videos=video_list,
+        categories=VIDEO_CATEGORIES.keys(),
+        current_category=category,
+        search_query=search_query
     )
 
 
-# ============================================================
-# LOGOUT
-# ============================================================
+@app.route("/discover")
+def discover():
+    if "user_id" not in session:
+        return redirect("/login")
+
+    connection = get_db()
+
+    users = connection.execute("""
+        SELECT id, username
+        FROM users
+        WHERE id != ?
+        ORDER BY username
+    """, (session["user_id"],)).fetchall()
+
+    connection.close()
+
+    return render_template(
+        "home.html",
+        username=session["username"],
+        posts=[],
+        comments=[],
+        users=users,
+        following_ids=[]
+    )
+
+
+@app.route("/messages")
+def messages():
+    if "user_id" not in session:
+        return redirect("/login")
+
+    return "Messaging system coming soon."
+
+
+@app.route("/notifications")
+def notifications():
+    if "user_id" not in session:
+        return redirect("/login")
+
+    return "Notifications system coming soon."
+
 
 @app.route("/logout")
 def logout():
-
     session.clear()
-
     return redirect("/")
 
 
-# ============================================================
-# START SERVER
-# ============================================================
+# IMPORTANT FOR RENDER:
+# Initialize the database when Gunicorn starts the application.
+init_db()
+
 
 if __name__ == "__main__":
-
-    init_db()
-
-    app.run(
-        debug=True
-    )
+    app.run(debug=True)
