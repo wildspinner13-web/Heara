@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>{{ user["username"] }} — Heara</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='home.css') }}">
+
+    <style>
+        .profile-page {
+            min-height: 100vh;
+            padding: 110px 25px 60px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .profile-container {
+            max-width: 1000px;
+            margin: auto;
+        }
+
+        .profile-card {
+            position: relative;
+            overflow: hidden;
+            padding: 45px;
+            border-radius: 30px;
+            background: rgba(20, 20, 35, 0.72);
+            border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(25px);
+            box-shadow:
+                0 30px 80px rgba(0,0,0,0.45),
+                inset 0 1px rgba(255,255,255,0.08);
+        }
+
+        .profile-glow {
+            position: absolute;
+            width: 300px;
+            height: 300px;
+            background: rgba(130, 70, 255, 0.22);
+            filter: blur(100px);
+            border-radius: 50%;
+            top: -120px;
+            right: -100px;
+            pointer-events: none;
+        }
+
+        .profile-top {
+            display: flex;
+            align-items: center;
+            gap: 28px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .avatar {
+            width: 115px;
+            height: 115px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 42px;
+            font-weight: 800;
+            color: white;
+            background: linear-gradient(135deg, #7c3cff, #b45cff);
+            box-shadow:
+                0 0 35px rgba(140, 70, 255, 0.5),
+                inset 0 1px rgba(255,255,255,0.3);
+        }
+
+        .profile-info h1 {
+            margin: 0 0 8px;
+            font-size: 36px;
+            color: white;
+        }
+
+        .profile-info p {
+            margin: 0;
+            color: rgba(255,255,255,0.6);
+            font-size: 15px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-top: 40px;
+        }
+
+        .stat {
+            padding: 25px;
+            text-align: center;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.045);
+            border: 1px solid rgba(255,255,255,0.08);
+            transition: .25s ease;
+        }
+
+        .stat:hover {
+            transform: translateY(-5px);
+            background: rgba(255,255,255,0.07);
+            box-shadow: 0 15px 35px rgba(0,0,0,.25);
+        }
+
+        .stat-number {
+            display: block;
+            color: white;
+            font-size: 30px;
+            font-weight: 800;
+            margin-bottom: 6px;
+        }
+
+        .stat-label {
+            color: rgba(255,255,255,.55);
+            font-size: 14px;
+        }
+
+        .profile-actions {
+            display: flex;
+            gap: 15px;
+            margin-top: 35px;
+            flex-wrap: wrap;
+        }
+
+        .profile-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 13px 24px;
+            border-radius: 14px;
+            text-decoration: none;
+            color: white;
+            font-weight: 700;
+            border: 1px solid rgba(255,255,255,.1);
+            background: rgba(255,255,255,.06);
+            transition: .25s ease;
+        }
+
+        .profile-button:hover {
+            transform: translateY(-3px);
+            background: rgba(255,255,255,.1);
+        }
+
+        .profile-button.primary {
+            background: linear-gradient(135deg, #713cff, #a855f7);
+            border: none;
+            box-shadow: 0 10px 30px rgba(120,60,255,.3);
+        }
+
+        .profile-button.primary:hover {
+            box-shadow: 0 15px 40px rgba(120,60,255,.45);
+        }
+
+        @media (max-width: 700px) {
+
+            .profile-page {
+                padding: 90px 15px 40px;
+            }
+
+            .profile-card {
+                padding: 28px 20px;
+            }
+
+            .profile-top {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .profile-info h1 {
+                font-size: 28px;
+            }
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+
+            .profile-actions {
+                flex-direction: column;
+            }
+
+            .profile-button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="profile-page">
+
+        <div class="profile-container">
+
+            <div class="profile-card">
+
+                <div class="profile-glow"></div>
+
+                <div class="profile-top">
+
+                    <div class="avatar">
+                        {{ user["username"][0]|upper }}
+                    </div>
+
+                    <div class="profile-info">
+                        <h1>@{{ user["username"] }}</h1>
+
+                        <p>
+                            {{ user["email"] }}
+                        </p>
+                    </div>
+
+                </div>
+
+
+                <div class="stats">
+
+                    <div class="stat">
+                        <span class="stat-number">
+                            {{ post_count }}
+                        </span>
+
+                        <span class="stat-label">
+                            Posts
+                        </span>
+                    </div>
+
+
+                    <div class="stat">
+                        <span class="stat-number">
+                            {{ follower_count }}
+                        </span>
+
+                        <span class="stat-label">
+                            Followers
+                        </span>
+                    </div>
+
+
+                    <div class="stat">
+                        <span class="stat-number">
+                            {{ following_count }}
+                        </span>
+
+                        <span class="stat-label">
+                            Following
+                        </span>
+                    </div>
+
+                </div>
+
+
+                <div class="profile-actions">
+
+                    <a href="/home" class="profile-button primary">
+                        ← Back to Home
+                    </a>
+
+                    <a href="/videos" class="profile-button">
+                        🎬 Videos
+                    </a>
+
+                    <a href="/logout" class="profile-button">
+                        Log out
+                    </a>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</body>
+</html>
