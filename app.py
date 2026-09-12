@@ -14,12 +14,12 @@ app.secret_key = os.environ.get(
     "heara-development-key"
 )
 
+DATABASE = "database.db"
+
+
 # =========================================================
 # DATABASE
 # =========================================================
-
-DATABASE = "database.db"
-
 
 def get_db():
     conn = sqlite3.connect(DATABASE)
@@ -28,6 +28,7 @@ def get_db():
 
 
 def init_db():
+
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
 
@@ -107,7 +108,11 @@ VIDEO_CATEGORIES = {
 # PEXELS VIDEO API
 # =========================================================
 
-def get_pexels_videos(query, page=1, per_page=20):
+def get_pexels_videos(
+    query,
+    page=1,
+    per_page=20
+):
 
     api_key = os.environ.get("PEXELS_API_KEY")
 
@@ -133,22 +138,33 @@ def get_pexels_videos(query, page=1, per_page=20):
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=20) as response:
-            data = json.loads(response.read().decode("utf-8"))
+
+        with urllib.request.urlopen(
+            req,
+            timeout=20
+        ) as response:
+
+            data = json.loads(
+                response.read().decode("utf-8")
+            )
 
         videos = []
 
         for video in data.get("videos", []):
 
-            files = video.get("video_files", [])
+            files = video.get(
+                "video_files",
+                []
+            )
 
             if not files:
                 continue
 
-            # Prefer HD MP4
             selected_file = None
 
+            # Prefer HD MP4
             for file in files:
+
                 if (
                     file.get("file_type") == "video/mp4"
                     and file.get("width", 0) >= 720
@@ -156,9 +172,15 @@ def get_pexels_videos(query, page=1, per_page=20):
                     selected_file = file
                     break
 
+            # Fallback to any MP4
             if selected_file is None:
+
                 for file in files:
-                    if file.get("file_type") == "video/mp4":
+
+                    if file.get(
+                        "file_type"
+                    ) == "video/mp4":
+
                         selected_file = file
                         break
 
@@ -166,35 +188,78 @@ def get_pexels_videos(query, page=1, per_page=20):
                 continue
 
             videos.append({
+
                 "id": video.get("id"),
-                "url": selected_file.get("link"),
-                "thumbnail": video.get("image"),
-                "duration": video.get("duration", 0),
-                "width": selected_file.get("width", 0),
-                "height": selected_file.get("height", 0),
-                "user": video.get("user", {}).get("name", "Pexels")
+
+                "url": selected_file.get(
+                    "link"
+                ),
+
+                "thumbnail": video.get(
+                    "image"
+                ),
+
+                "duration": video.get(
+                    "duration",
+                    0
+                ),
+
+                "width": selected_file.get(
+                    "width",
+                    0
+                ),
+
+                "height": selected_file.get(
+                    "height",
+                    0
+                ),
+
+                "user": video.get(
+                    "user",
+                    {}
+                ).get(
+                    "name",
+                    "Pexels"
+                )
+
             })
 
         return videos
 
     except urllib.error.HTTPError as e:
-        print("Pexels HTTP error:", e.code)
+
+        print(
+            "Pexels HTTP error:",
+            e.code
+        )
+
         return []
 
     except urllib.error.URLError as e:
-        print("Pexels connection error:", e)
+
+        print(
+            "Pexels connection error:",
+            e
+        )
+
         return []
 
     except Exception as e:
-        print("Pexels error:", e)
+
+        print(
+            "Pexels error:",
+            e
+        )
+
         return []
 
 
 # =========================================================
-# HELPERS
+# USER HELPERS
 # =========================================================
 
 def current_user():
+
     user_id = session.get("user_id")
 
     if not user_id:
@@ -203,7 +268,11 @@ def current_user():
     conn = get_db()
 
     user = conn.execute(
-        "SELECT * FROM users WHERE id = ?",
+        """
+        SELECT *
+        FROM users
+        WHERE id = ?
+        """,
         (user_id,)
     ).fetchone()
 
@@ -220,47 +289,69 @@ def login_required(function):
         if "user_id" not in session:
             return redirect("/login")
 
-        return function(*args, **kwargs)
+        return function(
+            *args,
+            **kwargs
+        )
 
     return wrapper
 
+
+# =========================================================
+# MAIN WEBSITE DESIGN
+# =========================================================
 
 def page(title, body):
 
     user = current_user()
 
-    username = user["username"] if user else None
-
-    nav = """
-        <nav>
-            <a href="/">Home</a>
-            <a href="/videos">Videos</a>
-    """
+    username = (
+        user["username"]
+        if user
+        else None
+    )
 
     if username:
-        nav += f"""
-            <span class="welcome">Hi, {username}</span>
-            <a href="/logout">Logout</a>
-        """
-    else:
-        nav += """
-            <a href="/login">Login</a>
-            <a href="/register">Register</a>
+
+        account_links = f"""
+            <span class="welcome">
+                Hi, {username}
+            </span>
+
+            <a href="/logout">
+                Logout
+            </a>
         """
 
-    nav += "</nav>"
+    else:
+
+        account_links = """
+            <a href="/login">
+                Login
+            </a>
+
+            <a href="/register">
+                Register
+            </a>
+        """
 
     return f"""
 <!DOCTYPE html>
+
 <html lang="en">
+
 <head>
 
 <meta charset="UTF-8">
 
-<meta name="viewport"
-      content="width=device-width, initial-scale=1.0">
+<meta
+    name="viewport"
+    content="width=device-width,
+             initial-scale=1.0"
+>
 
 <title>{title} - Heara</title>
+
 
 <style>
 
@@ -268,193 +359,335 @@ def page(title, body):
     box-sizing: border-box;
 }}
 
+html,
 body {{
     margin: 0;
-    font-family: Arial, sans-serif;
-    background: #0f0f0f;
+    padding: 0;
+
+    min-height: 100%;
+
+    font-family:
+        Arial,
+        Helvetica,
+        sans-serif;
+
     color: white;
 }}
 
+body {{
+
+    background:
+        linear-gradient(
+            rgba(0,0,0,.48),
+            rgba(0,0,0,.65)
+        ),
+        url("/static/images/heara-hero.png");
+
+    background-size: cover;
+
+    background-position: center;
+
+    background-attachment: fixed;
+
+    background-repeat: no-repeat;
+
+    background-color: #0f0f0f;
+}}
+
+
+/* NAVIGATION */
+
 nav {{
+
     position: sticky;
+
     top: 0;
-    z-index: 100;
-    background: #181818;
+
+    z-index: 1000;
+
+    background:
+        rgba(10,10,20,.78);
+
+    backdrop-filter:
+        blur(15px);
+
     padding: 16px;
+
     display: flex;
+
     align-items: center;
+
     gap: 18px;
-    border-bottom: 1px solid #292929;
+
+    border-bottom:
+        1px solid
+        rgba(255,255,255,.12);
+
 }}
 
 nav a {{
+
     color: white;
+
     text-decoration: none;
+
     font-weight: bold;
+
 }}
 
 nav a:hover {{
+
     color: #ff4f81;
+
 }}
 
 .welcome {{
+
     margin-left: auto;
-    color: #aaa;
+
+    color: #bbb;
+
 }}
+
+
+/* CONTAINER */
 
 .container {{
-    width: min(1100px, 94%);
+
+    width:
+        min(1100px, 94%);
+
     margin: auto;
+
     padding: 30px 0;
+
 }}
 
+
+/* HERO */
+
 .hero {{
+
     text-align: center;
-    padding: 60px 20px;
+
+    padding: 80px 20px;
+
 }}
 
 .hero h1 {{
+
     font-size: 55px;
+
     margin-bottom: 10px;
+
 }}
 
 .hero span {{
+
     color: #ff4f81;
+
 }}
 
 .hero p {{
-    color: #bbb;
+
+    color: #ddd;
+
     font-size: 18px;
+
 }}
+
+
+/* BUTTON */
 
 .button {{
+
     display: inline-block;
+
     background: #ff4f81;
+
     color: white;
+
     padding: 12px 22px;
+
     border-radius: 25px;
+
     text-decoration: none;
+
     margin: 8px;
+
     border: none;
+
     cursor: pointer;
+
 }}
 
-.card {{
-    background: #191919;
+
+/* CARDS */
+
+.card,
+.post {{
+
+    background:
+        rgba(20,20,25,.82);
+
+    backdrop-filter:
+        blur(12px);
+
+    border:
+        1px solid
+        rgba(255,255,255,.08);
+
     border-radius: 15px;
+
     padding: 20px;
+
     margin-bottom: 20px;
+
 }}
 
-input, textarea {{
+
+/* FORMS */
+
+input,
+textarea {{
+
     width: 100%;
+
     padding: 13px;
+
     margin: 8px 0 15px;
+
     border-radius: 8px;
-    border: 1px solid #333;
-    background: #111;
+
+    border:
+        1px solid #333;
+
+    background:
+        rgba(0,0,0,.65);
+
     color: white;
+
 }}
 
 textarea {{
+
     min-height: 100px;
+
 }}
 
+
+/* CATEGORY */
+
 .category {{
+
     display: inline-block;
-    background: #252525;
+
+    background:
+        rgba(37,37,37,.85);
+
     color: white;
+
     text-decoration: none;
+
     padding: 10px 15px;
+
     border-radius: 20px;
+
     margin: 5px;
+
 }}
 
 .category:hover {{
+
     background: #ff4f81;
+
 }}
 
-.video-grid {{
-    display: grid;
-    grid-template-columns:
-        repeat(auto-fit, minmax(280px, 1fr));
-    gap: 20px;
-}}
 
-.video-card {{
-    background: #191919;
-    border-radius: 15px;
-    overflow: hidden;
-}}
-
-.video-card video {{
-    width: 100%;
-    display: block;
-    background: black;
-    max-height: 500px;
-}}
-
-.video-info {{
-    padding: 15px;
-}}
-
-.post {{
-    background: #191919;
-    padding: 20px;
-    border-radius: 15px;
-    margin-bottom: 20px;
-}}
+/* TEXT */
 
 .small {{
-    color: #888;
+
+    color: #aaa;
+
     font-size: 13px;
+
 }}
 
 .error {{
+
     background: #5b1b1b;
+
     padding: 15px;
+
     border-radius: 8px;
-    margin-bottom: 15px;
+
 }}
 
 .success {{
+
     background: #174d2a;
+
     padding: 15px;
+
     border-radius: 8px;
-    margin-bottom: 15px;
+
 }}
 
 footer {{
+
     text-align: center;
+
     padding: 40px;
-    color: #777;
+
+    color: #aaa;
+
 }}
 
 </style>
 
 </head>
 
+
 <body>
 
-{nav}
+<nav>
+
+    <a href="/">
+        Home
+    </a>
+
+    <a href="/videos">
+        Videos
+    </a>
+
+    {account_links}
+
+</nav>
+
 
 <div class="container">
 
-{body}
+    {body}
 
 </div>
 
+
 <footer>
-Heara © 2026
+
+    Heara © 2026
+
 </footer>
 
+
 </body>
+
 </html>
 """
 
 
 # =========================================================
-# HOME PAGE
+# HOME
 # =========================================================
 
 @app.route("/")
@@ -462,22 +695,31 @@ def home():
 
     conn = get_db()
 
-    posts = conn.execute("""
+    posts = conn.execute(
+        """
         SELECT
             posts.id,
             posts.content,
             posts.created_at,
             users.username,
-            COUNT(likes.id) AS like_count
+            COUNT(likes.id)
+            AS like_count
+
         FROM posts
+
         JOIN users
-            ON posts.user_id = users.id
+        ON posts.user_id = users.id
+
         LEFT JOIN likes
-            ON posts.id = likes.post_id
+        ON posts.id = likes.post_id
+
         GROUP BY posts.id
+
         ORDER BY posts.created_at DESC
+
         LIMIT 30
-    """).fetchall()
+        """
+    ).fetchall()
 
     conn.close()
 
@@ -488,35 +730,58 @@ def home():
         post_html += f"""
         <div class="post">
 
-            <strong>@{post["username"]}</strong>
+            <strong>
+                @{post["username"]}
+            </strong>
 
-            <p>{post["content"]}</p>
+            <p>
+                {post["content"]}
+            </p>
 
             <div class="small">
-                {post["like_count"]} likes
-                · {post["created_at"]}
+
+                {post["like_count"]}
+                likes
+
+                ·
+
+                {post["created_at"]}
+
             </div>
 
             <br>
 
-            <a class="button"
-               href="/like/{post["id"]}">
-               Like
+            <a
+                class="button"
+                href="/like/{post["id"]}"
+            >
+                Like
             </a>
 
-            <a class="button"
-               href="/post/{post["id"]}">
-               View
+            <a
+                class="button"
+                href="/post/{post["id"]}"
+            >
+                View
             </a>
 
         </div>
         """
 
     if not post_html:
+
         post_html = """
         <div class="card">
-            <h2>No posts yet</h2>
-            <p>Be the first person to post on Heara.</p>
+
+            <h2>
+                No posts yet
+            </h2>
+
+            <p>
+                Be the first person
+                to post on Heara.
+            </p>
+
         </div>
         """
 
@@ -524,36 +789,56 @@ def home():
 
     <section class="hero">
 
-        <h1>Welcome to <span>Heara</span></h1>
+        <h1>
+            Welcome to
+            <span>Heara</span>
+        </h1>
 
         <p>
-            Discover videos, share your thoughts,
-            follow people and enjoy the community.
+            Discover videos,
+            share your thoughts,
+            follow people and enjoy
+            the community.
         </p>
 
-        <a class="button" href="/videos">
+        <a
+            class="button"
+            href="/videos"
+        >
             Watch Videos
         </a>
 
-        <a class="button" href="/register">
+        <a
+            class="button"
+            href="/register"
+        >
             Join Heara
         </a>
 
     </section>
 
+
     <div class="card">
 
-        <h2>Create a Post</h2>
+        <h2>
+            Create a Post
+        </h2>
 
-        <form method="POST" action="/post">
+        <form
+            method="POST"
+            action="/post"
+        >
 
             <textarea
                 name="content"
                 placeholder="What's on your mind?"
-                required>
-            </textarea>
+                required
+            ></textarea>
 
-            <button class="button" type="submit">
+            <button
+                class="button"
+                type="submit"
+            >
                 Post
             </button>
 
@@ -561,17 +846,23 @@ def home():
 
     </div>
 
-    <h2>Latest Posts</h2>
+
+    <h2>
+        Latest Posts
+    </h2>
 
     {post_html}
 
     """
 
-    return page("Home", body)
+    return page(
+        "Home",
+        body
+    )
 
 
 # =========================================================
-# VIDEOS
+# TIKTOK-STYLE VIDEOS
 # =========================================================
 
 @app.route("/videos")
@@ -585,10 +876,8 @@ def videos():
     if category not in VIDEO_CATEGORIES:
         category = "For You"
 
-    query = VIDEO_CATEGORIES[category]
-
     videos = get_pexels_videos(
-        query=query,
+        VIDEO_CATEGORIES[category],
         page=1,
         per_page=20
     )
@@ -597,91 +886,1125 @@ def videos():
 
     for name in VIDEO_CATEGORIES:
 
+        active = (
+            "active"
+            if name == category
+            else ""
+        )
+
         categories_html += f"""
-        <a class="category"
-           href="/videos?category={urllib.parse.quote(name)}">
-           {name}
+        <a
+            class="video-category {active}"
+            href="/videos?category={urllib.parse.quote(name)}"
+        >
+            {name}
         </a>
         """
 
     video_html = ""
 
-    for video in videos:
+    for index, video in enumerate(videos):
 
         video_html += f"""
-        <div class="video-card">
+
+        <section
+            class="video-slide"
+            data-index="{index}"
+        >
 
             <video
-                controls
+                class="feed-video"
                 playsinline
+                muted
+                loop
                 preload="metadata"
-                poster="{video["thumbnail"]}">
+                poster="{video["thumbnail"]}"
+            >
 
                 <source
                     src="{video["url"]}"
-                    type="video/mp4">
+                    type="video/mp4"
+                >
 
-                Your browser does not support video.
             </video>
+
+
+            <div class="video-shade"></div>
+
 
             <div class="video-info">
 
-                <strong>{category}</strong>
+                <div class="video-tag">
+                    {category}
+                </div>
 
-                <p class="small">
-                    Video by {video["user"]}
+                <h2>
+                    @{video["user"]}
+                </h2>
+
+                <p>
+                    Discover more videos
+                    on Heara.
                 </p>
 
             </div>
 
-        </div>
+
+            <div class="video-buttons">
+
+                <button
+                    class="round-button"
+                    onclick="likeVideo(this)"
+                >
+                    <span>♥</span>
+                    <small>Like</small>
+                </button>
+
+
+                <button
+                    class="round-button"
+                    onclick="shareVideo()"
+                >
+                    <span>↗</span>
+                    <small>Share</small>
+                </button>
+
+            </div>
+
+
+            <div class="video-counter">
+
+                {index + 1}
+                /
+                {len(videos)}
+
+            </div>
+
+        </section>
+
         """
 
     if not video_html:
 
         video_html = """
-        <div class="card">
 
-            <h2>No videos available right now.</h2>
+        <section class="empty-videos">
+
+            <h1>
+                No videos available
+            </h1>
 
             <p>
-                Make sure your PEXELS_API_KEY is configured
+                Make sure your
+                PEXELS_API_KEY is configured
                 in Render Environment Variables.
             </p>
 
-        </div>
+        </section>
+
         """
 
-    body = f"""
+    return f"""
 
-    <h1>Heara Videos</h1>
+<!DOCTYPE html>
 
-    <p>
-        Discover videos from different categories.
-    </p>
+<html lang="en">
 
-    <div>
-        {categories_html}
-    </div>
+<head>
 
-    <br>
+<meta charset="UTF-8">
 
-    <h2>{category}</h2>
+<meta
+    name="viewport"
+    content="width=device-width,
+             initial-scale=1.0,
+             maximum-scale=1.0,
+             user-scalable=no"
+>
 
-    <div class="video-grid">
-        {video_html}
-    </div>
+<title>
+    Videos - Heara
+</title>
 
-    """
 
-    return page("Videos", body)
+<style>
+
+* {{
+    box-sizing: border-box;
+}}
+
+
+html,
+body {{
+
+    margin: 0;
+    padding: 0;
+
+    width: 100%;
+    height: 100%;
+
+    overflow: hidden;
+
+    background: #000;
+
+    color: white;
+
+    font-family:
+        Arial,
+        Helvetica,
+        sans-serif;
+
+}}
+
+
+/* =====================================================
+   FULL SCREEN FEED
+===================================================== */
+
+.video-feed {{
+
+    position: fixed;
+
+    inset: 0;
+
+    width: 100vw;
+
+    height: 100vh;
+
+    overflow-y: auto;
+
+    overflow-x: hidden;
+
+    scroll-snap-type:
+        y mandatory;
+
+    scroll-behavior:
+        smooth;
+
+    scrollbar-width: none;
+
+    overscroll-behavior-y:
+        contain;
+
+    -webkit-overflow-scrolling:
+        touch;
+
+}}
+
+.video-feed::-webkit-scrollbar {{
+
+    display: none;
+
+}}
+
+
+/* =====================================================
+   EACH VIDEO
+===================================================== */
+
+.video-slide {{
+
+    position: relative;
+
+    width: 100vw;
+
+    height: 100vh;
+
+    min-height: 100vh;
+
+    overflow: hidden;
+
+    scroll-snap-align:
+        start;
+
+    scroll-snap-stop:
+        always;
+
+    background: #000;
+
+}}
+
+
+/* =====================================================
+   VIDEO ITSELF
+===================================================== */
+
+.feed-video {{
+
+    position: absolute;
+
+    inset: 0;
+
+    width: 100%;
+
+    height: 100%;
+
+    object-fit: contain;
+
+    background: #000;
+
+    z-index: 1;
+
+}}
+
+
+/* =====================================================
+   BACKGROUND IMAGE
+===================================================== */
+
+.video-slide::before {{
+
+    content: "";
+
+    position: absolute;
+
+    inset: 0;
+
+    background-image:
+        url("/static/images/heara-hero.png");
+
+    background-size:
+        cover;
+
+    background-position:
+        center;
+
+    opacity: .08;
+
+    filter:
+        blur(4px);
+
+    transform:
+        scale(1.08);
+
+    z-index: 0;
+
+}}
+
+
+/* =====================================================
+   VIDEO GRADIENT
+===================================================== */
+
+.video-shade {{
+
+    position: absolute;
+
+    inset: 0;
+
+    z-index: 2;
+
+    pointer-events: none;
+
+    background:
+
+        linear-gradient(
+            to bottom,
+            rgba(0,0,0,.70),
+            transparent 22%,
+            transparent 58%,
+            rgba(0,0,0,.85)
+        );
+
+}}
+
+
+/* =====================================================
+   TOP BAR
+===================================================== */
+
+.video-top {{
+
+    position: fixed;
+
+    top: 0;
+
+    left: 0;
+
+    width: 100%;
+
+    height: 65px;
+
+    z-index: 100;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content:
+        space-between;
+
+    padding:
+        0 20px;
+
+}}
+
+
+.logo {{
+
+    color: white;
+
+    font-size: 25px;
+
+    font-weight: 900;
+
+    text-decoration: none;
+
+    text-shadow:
+        0 2px 8px black;
+
+}}
+
+.logo span {{
+
+    color: #ff4f81;
+
+}}
+
+
+.home {{
+
+    color: white;
+
+    text-decoration: none;
+
+    background:
+        rgba(0,0,0,.50);
+
+    padding:
+        9px 17px;
+
+    border-radius: 25px;
+
+    backdrop-filter:
+        blur(12px);
+
+}}
+
+
+/* =====================================================
+   CATEGORY BAR
+===================================================== */
+
+.video-categories {{
+
+    position: fixed;
+
+    top: 65px;
+
+    left: 0;
+
+    width: 100%;
+
+    z-index: 100;
+
+    display: flex;
+
+    gap: 8px;
+
+    padding:
+        8px 14px;
+
+    overflow-x: auto;
+
+    scrollbar-width: none;
+
+}}
+
+.video-categories::-webkit-scrollbar {{
+    display: none;
+}}
+
+
+.video-category {{
+
+    flex-shrink: 0;
+
+    color: white;
+
+    text-decoration: none;
+
+    font-size: 13px;
+
+    padding:
+        8px 14px;
+
+    border-radius: 22px;
+
+    background:
+        rgba(0,0,0,.48);
+
+    border:
+        1px solid
+        rgba(255,255,255,.16);
+
+    backdrop-filter:
+        blur(12px);
+
+}}
+
+
+.video-category.active {{
+
+    background:
+        #ff4f81;
+
+    border-color:
+        #ff4f81;
+
+}}
+
+
+/* =====================================================
+   VIDEO INFORMATION
+===================================================== */
+
+.video-info {{
+
+    position: absolute;
+
+    left: 22px;
+
+    bottom: 40px;
+
+    z-index: 10;
+
+    max-width: 65%;
+
+    text-shadow:
+        0 2px 8px black;
+
+}}
+
+
+.video-info h2 {{
+
+    margin:
+        8px 0;
+
+    font-size:
+        21px;
+
+}}
+
+
+.video-info p {{
+
+    margin: 0;
+
+    color:
+        rgba(255,255,255,.85);
+
+    font-size:
+        14px;
+
+}}
+
+
+.video-tag {{
+
+    display:
+        inline-block;
+
+    padding:
+        6px 12px;
+
+    border-radius:
+        20px;
+
+    background:
+        rgba(255,79,129,.9);
+
+    font-size:
+        12px;
+
+}}
+
+
+/* =====================================================
+   RIGHT BUTTONS
+===================================================== */
+
+.video-buttons {{
+
+    position: absolute;
+
+    right: 18px;
+
+    bottom: 75px;
+
+    z-index: 20;
+
+    display: flex;
+
+    flex-direction: column;
+
+    gap: 18px;
+
+}}
+
+
+.round-button {{
+
+    width: 58px;
+
+    height: 58px;
+
+    border: none;
+
+    border-radius: 50%;
+
+    color: white;
+
+    background:
+        rgba(0,0,0,.50);
+
+    backdrop-filter:
+        blur(12px);
+
+    cursor: pointer;
+
+    display: flex;
+
+    flex-direction: column;
+
+    align-items: center;
+
+    justify-content: center;
+
+}}
+
+
+.round-button span {{
+
+    font-size: 22px;
+
+}}
+
+
+.round-button small {{
+
+    font-size: 9px;
+
+}}
+
+
+.round-button:hover {{
+
+    background:
+        rgba(255,79,129,.8);
+
+    transform:
+        scale(1.08);
+
+}}
+
+
+/* =====================================================
+   COUNTER
+===================================================== */
+
+.video-counter {{
+
+    position: absolute;
+
+    right: 20px;
+
+    bottom: 25px;
+
+    z-index: 20;
+
+    color:
+        rgba(255,255,255,.65);
+
+    font-size: 12px;
+
+}}
+
+
+/* =====================================================
+   EMPTY
+===================================================== */
+
+.empty-videos {{
+
+    height: 100vh;
+
+    display: flex;
+
+    flex-direction: column;
+
+    justify-content: center;
+
+    align-items: center;
+
+    text-align: center;
+
+    padding: 30px;
+
+}}
+
+
+/* =====================================================
+   MOBILE
+===================================================== */
+
+@media (max-width: 600px) {{
+
+    .video-info {{
+
+        left: 15px;
+
+        bottom: 35px;
+
+        max-width: 72%;
+
+    }}
+
+    .video-buttons {{
+
+        right: 10px;
+
+        bottom: 70px;
+
+    }}
+
+    .round-button {{
+
+        width: 52px;
+
+        height: 52px;
+
+    }}
+
+}}
+
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<!-- TOP BAR -->
+
+<div class="video-top">
+
+    <a
+        class="logo"
+        href="/"
+    >
+        He<span>a</span>ra
+    </a>
+
+
+    <a
+        class="home"
+        href="/"
+    >
+        Home
+    </a>
+
+</div>
+
+
+<!-- CATEGORIES -->
+
+<div class="video-categories">
+
+    {categories_html}
+
+</div>
+
+
+<!-- FEED -->
+
+<main
+    class="video-feed"
+    id="videoFeed"
+>
+
+    {video_html}
+
+</main>
+
+
+<script>
+
+/* =====================================================
+   GET ALL VIDEOS
+===================================================== */
+
+const videos =
+    document.querySelectorAll(
+        ".feed-video"
+    );
+
+
+/* =====================================================
+   PLAY ONLY THE VIDEO ON SCREEN
+===================================================== */
+
+const observer =
+    new IntersectionObserver(
+
+        function(entries) {{
+
+            entries.forEach(
+                function(entry) {{
+
+                    const video =
+                        entry.target;
+
+
+                    if (
+                        entry.isIntersecting
+                        &&
+                        entry.intersectionRatio >= .65
+                    ) {{
+
+                        videos.forEach(
+                            function(other) {{
+
+                                if (
+                                    other !== video
+                                ) {{
+
+                                    other.pause();
+
+                                }}
+
+                            }}
+                        );
+
+
+                        video.play()
+                            .catch(
+                                function() {{
+
+                                    console.log(
+                                        "Video waiting for interaction"
+                                    );
+
+                                }}
+                            );
+
+                    }}
+
+                    else {{
+
+                        video.pause();
+
+                    }}
+
+                }}
+            );
+
+        }},
+
+        {{
+            threshold: .65
+        }}
+
+    );
+
+
+videos.forEach(
+    function(video) {{
+
+        observer.observe(
+            video
+        );
+
+    }}
+);
+
+
+/* =====================================================
+   START FIRST VIDEO
+===================================================== */
+
+if (videos.length > 0) {{
+
+    videos[0]
+        .play()
+        .catch(
+            function() {{}}
+        );
+
+}}
+
+
+/* =====================================================
+   LIKE
+===================================================== */
+
+function likeVideo(button) {{
+
+    const heart =
+        button.querySelector(
+            "span"
+        );
+
+
+    if (
+        heart.style.color ===
+        "rgb(255, 79, 129)"
+    ) {{
+
+        heart.style.color =
+            "white";
+
+    }}
+
+    else {{
+
+        heart.style.color =
+            "rgb(255, 79, 129)";
+
+    }}
+
+}}
+
+
+/* =====================================================
+   SHARE
+===================================================== */
+
+function shareVideo() {{
+
+    if (
+        navigator.share
+    ) {{
+
+        navigator.share({{
+
+            title:
+                "Heara",
+
+            text:
+                "Check out this video on Heara.",
+
+            url:
+                window.location.href
+
+        }});
+
+    }}
+
+    else if (
+        navigator.clipboard
+    ) {{
+
+        navigator.clipboard
+            .writeText(
+                window.location.href
+            );
+
+        alert(
+            "Video link copied!"
+        );
+
+    }}
+
+}}
+
+
+/* =====================================================
+   DESKTOP MOUSE WHEEL
+===================================================== */
+
+let wheelLocked = false;
+
+
+document
+    .getElementById(
+        "videoFeed"
+    )
+    .addEventListener(
+        "wheel",
+        function(event) {{
+
+            if (wheelLocked) {{
+
+                event.preventDefault();
+
+                return;
+
+            }}
+
+
+            if (
+                Math.abs(
+                    event.deltaY
+                ) < 20
+            ) {{
+
+                return;
+
+            }}
+
+
+            event.preventDefault();
+
+            wheelLocked = true;
+
+
+            const slides =
+                document.querySelectorAll(
+                    ".video-slide"
+                );
+
+
+            const current =
+                Math.round(
+                    this.scrollTop /
+                    window.innerHeight
+                );
+
+
+            let next =
+                current;
+
+
+            if (
+                event.deltaY > 0
+            ) {{
+
+                next =
+                    Math.min(
+                        current + 1,
+                        slides.length - 1
+                    );
+
+            }}
+
+            else {{
+
+                next =
+                    Math.max(
+                        current - 1,
+                        0
+                    );
+
+            }}
+
+
+            if (
+                slides[next]
+            ) {{
+
+                slides[next]
+                    .scrollIntoView({{
+                        behavior:
+                            "smooth"
+                    }});
+
+            }}
+
+
+            setTimeout(
+                function() {{
+
+                    wheelLocked =
+                        false;
+
+                }},
+                700
+            );
+
+        }},
+        {{
+            passive: false
+        }}
+    );
+
+
+/* =====================================================
+   KEYBOARD CONTROLS
+===================================================== */
+
+document.addEventListener(
+    "keydown",
+    function(event) {{
+
+        const slides =
+            document.querySelectorAll(
+                ".video-slide"
+            );
+
+
+        const current =
+            Math.round(
+                document.getElementById(
+                    "videoFeed"
+                ).scrollTop /
+                window.innerHeight
+            );
+
+
+        if (
+            event.key ===
+            "ArrowDown"
+        ) {{
+
+            const next =
+                Math.min(
+                    current + 1,
+                    slides.length - 1
+                );
+
+            slides[next]
+                .scrollIntoView({{
+                    behavior:
+                        "smooth"
+                }});
+
+        }}
+
+
+        if (
+            event.key ===
+            "ArrowUp"
+        ) {{
+
+            const previous =
+                Math.max(
+                    current - 1,
+                    0
+                );
+
+            slides[previous]
+                .scrollIntoView({{
+                    behavior:
+                        "smooth"
+                }});
+
+        }}
+
+    }}
+);
+
+</script>
+
+
+</body>
+
+</html>
+
+"""
 
 
 # =========================================================
 # REGISTER
 # =========================================================
 
-@app.route("/register", methods=["GET", "POST"])
+@app.route(
+    "/register",
+    methods=["GET", "POST"]
+)
 def register():
 
     error = ""
@@ -700,15 +2023,24 @@ def register():
 
         if not username or not password:
 
-            error = "Please enter a username and password."
+            error = (
+                "Please enter a "
+                "username and password."
+            )
 
         elif len(username) < 3:
 
-            error = "Username must be at least 3 characters."
+            error = (
+                "Username must be "
+                "at least 3 characters."
+            )
 
         elif len(password) < 4:
 
-            error = "Password must be at least 4 characters."
+            error = (
+                "Password must be "
+                "at least 4 characters."
+            )
 
         else:
 
@@ -722,12 +2054,17 @@ def register():
                     (username, password)
                     VALUES (?, ?)
                     """,
-                    (username, password)
+                    (
+                        username,
+                        password
+                    )
                 )
 
                 conn.commit()
 
-                session["user_id"] = cursor.lastrowid
+                session["user_id"] = (
+                    cursor.lastrowid
+                )
 
                 conn.close()
 
@@ -737,33 +2074,52 @@ def register():
 
                 conn.close()
 
-                error = "That username already exists."
+                error = (
+                    "That username "
+                    "already exists."
+                )
+
 
     body = f"""
 
     <div class="card">
 
-        <h1>Create your Heara account</h1>
+        <h1>
+            Create your Heara account
+        </h1>
 
-        {f'<div class="error">{error}</div>' if error else ''}
+        {
+            f'<div class="error">{error}</div>'
+            if error
+            else ''
+        }
 
         <form method="POST">
 
-            <label>Username</label>
+            <label>
+                Username
+            </label>
 
             <input
                 type="text"
                 name="username"
-                required>
+                required
+            >
 
-            <label>Password</label>
+            <label>
+                Password
+            </label>
 
             <input
                 type="password"
                 name="password"
-                required>
+                required
+            >
 
-            <button class="button" type="submit">
+            <button
+                class="button"
+                type="submit"
+            >
                 Register
             </button>
 
@@ -773,14 +2129,20 @@ def register():
 
     """
 
-    return page("Register", body)
+    return page(
+        "Register",
+        body
+    )
 
 
 # =========================================================
 # LOGIN
 # =========================================================
 
-@app.route("/login", methods=["GET", "POST"])
+@app.route(
+    "/login",
+    methods=["GET", "POST"]
+)
 def login():
 
     error = ""
@@ -806,44 +2168,68 @@ def login():
             WHERE username = ?
             AND password = ?
             """,
-            (username, password)
+            (
+                username,
+                password
+            )
         ).fetchone()
 
         conn.close()
 
         if user:
 
-            session["user_id"] = user["id"]
+            session["user_id"] = (
+                user["id"]
+            )
 
             return redirect("/")
 
-        error = "Incorrect username or password."
+        error = (
+            "Incorrect username "
+            "or password."
+        )
+
 
     body = f"""
 
     <div class="card">
 
-        <h1>Login</h1>
+        <h1>
+            Login
+        </h1>
 
-        {f'<div class="error">{error}</div>' if error else ''}
+        {
+            f'<div class="error">{error}</div>'
+            if error
+            else ''
+        }
 
         <form method="POST">
 
-            <label>Username</label>
+            <label>
+                Username
+            </label>
 
             <input
                 type="text"
                 name="username"
-                required>
+                required
+            >
 
-            <label>Password</label>
+            <label>
+                Password
+            </label>
 
             <input
                 type="password"
                 name="password"
-                required>
+                required
+            >
 
-            <button class="button" type="submit">
+            <button
+                class="button"
+                type="submit"
+            >
                 Login
             </button>
 
@@ -851,14 +2237,20 @@ def login():
 
         <p>
             Don't have an account?
-            <a href="/register">Register</a>
+
+            <a href="/register">
+                Register
+            </a>
         </p>
 
     </div>
 
     """
 
-    return page("Login", body)
+    return page(
+        "Login",
+        body
+    )
 
 
 # =========================================================
@@ -877,7 +2269,10 @@ def logout():
 # CREATE POST
 # =========================================================
 
-@app.route("/post", methods=["POST"])
+@app.route(
+    "/post",
+    methods=["POST"]
+)
 @login_required
 def create_post():
 
@@ -912,7 +2307,9 @@ def create_post():
 # LIKE POST
 # =========================================================
 
-@app.route("/like/<int:post_id>")
+@app.route(
+    "/like/<int:post_id>"
+)
 @login_required
 def like_post(post_id):
 
@@ -949,7 +2346,8 @@ def like_post(post_id):
 
         conn.execute(
             """
-            INSERT OR IGNORE INTO likes
+            INSERT OR IGNORE
+            INTO likes
             (user_id, post_id)
             VALUES (?, ?)
             """,
@@ -962,14 +2360,18 @@ def like_post(post_id):
     conn.commit()
     conn.close()
 
-    return redirect(request.referrer or "/")
+    return redirect(
+        request.referrer or "/"
+    )
 
 
 # =========================================================
 # VIEW POST
 # =========================================================
 
-@app.route("/post/<int:post_id>")
+@app.route(
+    "/post/<int:post_id>"
+)
 def view_post(post_id):
 
     conn = get_db()
@@ -979,9 +2381,12 @@ def view_post(post_id):
         SELECT
             posts.*,
             users.username
+
         FROM posts
+
         JOIN users
-            ON posts.user_id = users.id
+        ON posts.user_id = users.id
+
         WHERE posts.id = ?
         """,
         (post_id,)
@@ -995,22 +2400,39 @@ def view_post(post_id):
             "Not Found",
             """
             <div class="card">
-                <h1>Post not found</h1>
-                <a class="button" href="/">Go Home</a>
+
+                <h1>
+                    Post not found
+                </h1>
+
+                <a
+                    class="button"
+                    href="/"
+                >
+                    Go Home
+                </a>
+
             </div>
             """
         ), 404
+
 
     comments = conn.execute(
         """
         SELECT
             comments.*,
             users.username
+
         FROM comments
+
         JOIN users
-            ON comments.user_id = users.id
+        ON comments.user_id =
+           users.id
+
         WHERE comments.post_id = ?
-        ORDER BY comments.created_at ASC
+
+        ORDER BY
+            comments.created_at ASC
         """,
         (post_id,)
     ).fetchall()
@@ -1022,17 +2444,23 @@ def view_post(post_id):
     for comment in comments:
 
         comments_html += f"""
+
         <div class="card">
 
-            <strong>@{comment["username"]}</strong>
+            <strong>
+                @{comment["username"]}
+            </strong>
 
-            <p>{comment["content"]}</p>
+            <p>
+                {comment["content"]}
+            </p>
 
             <div class="small">
                 {comment["created_at"]}
             </div>
 
         </div>
+
         """
 
     if not comments_html:
@@ -1043,13 +2471,18 @@ def view_post(post_id):
         </p>
         """
 
+
     body = f"""
 
     <div class="post">
 
-        <strong>@{post["username"]}</strong>
+        <strong>
+            @{post["username"]}
+        </strong>
 
-        <p>{post["content"]}</p>
+        <p>
+            {post["content"]}
+        </p>
 
         <div class="small">
             {post["created_at"]}
@@ -1057,14 +2490,19 @@ def view_post(post_id):
 
         <br>
 
-        <a class="button"
-           href="/like/{post["id"]}">
-           Like
+        <a
+            class="button"
+            href="/like/{post["id"]}"
+        >
+            Like
         </a>
 
     </div>
 
-    <h2>Comments</h2>
+
+    <h2>
+        Comments
+    </h2>
 
     {comments_html}
 
@@ -1076,20 +2514,25 @@ def view_post(post_id):
 
         <div class="card">
 
-            <h3>Add a comment</h3>
+            <h3>
+                Add a comment
+            </h3>
 
-            <form method="POST"
-                  action="/comment/{post_id}">
+            <form
+                method="POST"
+                action="/comment/{post_id}"
+            >
 
                 <textarea
                     name="content"
                     required
-                    placeholder="Write a comment...">
-                </textarea>
+                    placeholder="Write a comment..."
+                ></textarea>
 
                 <button
                     class="button"
-                    type="submit">
+                    type="submit"
+                >
                     Comment
                 </button>
 
@@ -1113,6 +2556,7 @@ def view_post(post_id):
 
         """
 
+
     return page(
         "Post",
         body
@@ -1123,7 +2567,10 @@ def view_post(post_id):
 # COMMENTS
 # =========================================================
 
-@app.route("/comment/<int:post_id>", methods=["POST"])
+@app.route(
+    "/comment/<int:post_id>",
+    methods=["POST"]
+)
 @login_required
 def add_comment(post_id):
 
@@ -1158,10 +2605,12 @@ def add_comment(post_id):
 
 
 # =========================================================
-# FOLLOW USER
+# FOLLOW
 # =========================================================
 
-@app.route("/follow/<int:user_id>")
+@app.route(
+    "/follow/<int:user_id>"
+)
 @login_required
 def follow_user(user_id):
 
@@ -1172,7 +2621,8 @@ def follow_user(user_id):
 
     conn.execute(
         """
-        INSERT OR IGNORE INTO follows
+        INSERT OR IGNORE
+        INTO follows
         (follower_id, following_id)
         VALUES (?, ?)
         """,
@@ -1185,14 +2635,18 @@ def follow_user(user_id):
     conn.commit()
     conn.close()
 
-    return redirect(request.referrer or "/")
+    return redirect(
+        request.referrer or "/"
+    )
 
 
 # =========================================================
-# UNFOLLOW USER
+# UNFOLLOW
 # =========================================================
 
-@app.route("/unfollow/<int:user_id>")
+@app.route(
+    "/unfollow/<int:user_id>"
+)
 @login_required
 def unfollow_user(user_id):
 
@@ -1201,7 +2655,9 @@ def unfollow_user(user_id):
     conn.execute(
         """
         DELETE FROM follows
+
         WHERE follower_id = ?
+
         AND following_id = ?
         """,
         (
@@ -1213,11 +2669,13 @@ def unfollow_user(user_id):
     conn.commit()
     conn.close()
 
-    return redirect(request.referrer or "/")
+    return redirect(
+        request.referrer or "/"
+    )
 
 
 # =========================================================
-# API: CURRENT USER
+# API CURRENT USER
 # =========================================================
 
 @app.route("/api/me")
@@ -1232,14 +2690,20 @@ def api_me():
         })
 
     return jsonify({
+
         "logged_in": True,
-        "id": user["id"],
-        "username": user["username"]
+
+        "id":
+            user["id"],
+
+        "username":
+            user["username"]
+
     })
 
 
 # =========================================================
-# API: VIDEOS
+# API VIDEOS
 # =========================================================
 
 @app.route("/api/videos")
@@ -1258,8 +2722,13 @@ def api_videos():
     )
 
     return jsonify({
-        "category": category,
-        "videos": videos
+
+        "category":
+            category,
+
+        "videos":
+            videos
+
     })
 
 
@@ -1271,14 +2740,21 @@ def api_videos():
 def health():
 
     return jsonify({
-        "status": "ok",
-        "service": "Heara",
-        "message": "Heara is running"
+
+        "status":
+            "ok",
+
+        "service":
+            "Heara",
+
+        "message":
+            "Heara is running"
+
     })
 
 
 # =========================================================
-# ERROR HANDLERS
+# 404
 # =========================================================
 
 @app.errorhandler(404)
@@ -1289,13 +2765,19 @@ def not_found(error):
         """
         <div class="card">
 
-            <h1>Page not found</h1>
+            <h1>
+                Page not found
+            </h1>
 
             <p>
-                The page you requested does not exist.
+                The page you requested
+                does not exist.
             </p>
 
-            <a class="button" href="/">
+            <a
+                class="button"
+                href="/"
+            >
                 Go Home
             </a>
 
@@ -1303,6 +2785,10 @@ def not_found(error):
         """
     ), 404
 
+
+# =========================================================
+# 500
+# =========================================================
 
 @app.errorhandler(500)
 def server_error(error):
@@ -1312,14 +2798,19 @@ def server_error(error):
         """
         <div class="card">
 
-            <h1>Something went wrong</h1>
+            <h1>
+                Something went wrong
+            </h1>
 
             <p>
-                Heara encountered a server error.
-                Please try again.
+                Heara encountered
+                a server error.
             </p>
 
-            <a class="button" href="/">
+            <a
+                class="button"
+                href="/"
+            >
                 Go Home
             </a>
 
@@ -1329,7 +2820,7 @@ def server_error(error):
 
 
 # =========================================================
-# LOCAL DEVELOPMENT
+# START
 # =========================================================
 
 if __name__ == "__main__":
