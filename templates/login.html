@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Sign in — Heara</title>
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='auth.css') }}">
+</head>
+
+<body>
+
+<div class="auth-page">
+
+    <!-- Background glow -->
+    <div class="auth-glow glow-one"></div>
+    <div class="auth-glow glow-two"></div>
+    <div class="auth-glow glow-three"></div>
+
+    <!-- Particles -->
+    <div class="particles">
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+    </div>
+
+
+    <!-- Top navigation -->
+    <header class="auth-nav">
+
+        <a href="/" class="auth-brand">
+
+            <div class="brand-symbol">H</div>
+
+            <div>
+                <strong>Heara</strong>
+                <small>Talk. Listen. Connect.</small>
+            </div>
+
+        </a>
+
+        <a href="/register" class="top-register">
+            Create account →
+        </a>
+
+    </header>
+
+
+    <!-- Main -->
+    <main class="auth-main">
+
+        <!-- Decorative floating panel -->
+        <div class="side-card card-one">
+
+            <div class="mini-icon">♥</div>
+
+            <div>
+                <strong>Be heard</strong>
+                <span>Share your thoughts</span>
+            </div>
+
+        </div>
+
+
+        <div class="side-card card-two">
+
+            <div class="mini-icon blue">✦</div>
+
+            <div>
+                <strong>Discover</strong>
+                <span>Meet new people</span>
+            </div>
+
+        </div>
+
+
+        <div class="side-card card-three">
+
+            <div class="mini-icon pink">✉</div>
+
+            <div>
+                <strong>Connect</strong>
+                <span>Start conversations</span>
+            </div>
+
+        </div>
+
+
+        <!-- Login glass window -->
+        <section class="login-window">
+
+            <div class="window-glow"></div>
+
+            <div class="login-content">
+
+                <div class="login-logo">
+                    H
+                </div>
+
+                <div class="login-heading">
+
+                    <span class="small-heading">
+                        WELCOME BACK
+                    </span>
+
+                    <h1>
+                        Welcome back 👋
+                    </h1>
+
+                    <p>
+                        Sign in and continue connecting
+                        with your people.
+                    </p>
+
+                </div>
+
+
+                <form method="POST" action="/login">
+
+                    <div class="input-group">
+
+                        <label for="username">
+                            Username
+                        </label>
+
+                        <div class="input-wrapper">
+
+                            <span class="input-icon">
+                                @
+                            </span>
+
+                            <input
+                                id="username"
+                                type="text"
+                                name="username"
+                                placeholder="Enter your username"
+                                required
+                                autocomplete="username"
+                            >
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="input-group">
+
+                        <label for="password">
+                            Password
+                        </label>
+
+                        <div class="input-wrapper">
+
+                            <span class="input-icon">
+                                •••
+                            </span>
+
+                            <input
+                                id="password"
+                                type="password"
+                                name="password"
+                                placeholder="Enter your password"
+                                required
+                                autocomplete="current-password"
+                            >
+
+                            <button
+                                type="button"
+                                class="show-password"
+                                id="showPassword">
+                                Show
+                            </button>
+
+                        </div>
+
+                    </div>
+
+
+                    <button
+                        type="submit"
+                        class="login-button">
+
+                        <span>Sign in to Heara</span>
+
+                        <span class="login-arrow">
+                            →
+                        </span>
+
+                    </button>
+
+                </form>
+
+
+                <div class="divider">
+                    <span>or</span>
+                </div>
+
+
+                <p class="register-text">
+
+                    Don't have a Heara account?
+
+                    <a href="/register">
+                        Create one
+                    </a>
+
+                </p>
+
+
+                <p class="login-footer">
+                    Talk. Listen. Connect.
+                </p>
+
+            </div>
+
+        </section>
+
+    </main>
+
+</div>
+
+
+<script>
+
+document.addEventListener("DOMContentLoaded", function () {
+
+    const password =
+        document.getElementById("password");
+
+    const showPassword =
+        document.getElementById("showPassword");
+
+
+    showPassword.addEventListener("click", function () {
+
+        if (password.type === "password") {
+
+            password.type = "text";
+
+            showPassword.textContent = "Hide";
+
+        } else {
+
+            password.type = "password";
+
+            showPassword.textContent = "Show";
+
+        }
+
+    });
+
+});
+
+</script>
+
+</body>
+</html>

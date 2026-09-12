@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Heara — Talk. Listen. Connect.</title>
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='splash.css') }}">
+</head>
+
+<body>
+
+<div class="landing-page">
+
+    <!-- Animated background -->
+    <div class="background-glow glow-one"></div>
+    <div class="background-glow glow-two"></div>
+    <div class="background-glow glow-three"></div>
+
+    <div class="particles">
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+    </div>
+
+    <!-- Navigation -->
+    <header class="landing-nav">
+
+        <div class="brand">
+            <div class="brand-symbol">H</div>
+
+            <div>
+                <div class="brand-name">Heara</div>
+                <div class="brand-small">
+                    Talk. Listen. Connect.
+                </div>
+            </div>
+        </div>
+
+        <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#about">About</a>
+            <a href="/login" class="nav-login">Sign in</a>
+        </div>
+
+    </header>
+
+
+    <!-- Main hero -->
+    <main class="hero">
+
+        <!-- Left side -->
+        <section class="hero-content">
+
+            <div class="eyebrow">
+                <span class="status-dot"></span>
+                A place to be heard
+            </div>
+
+            <h1>
+                Your voice.
+                <span>Your people.</span>
+                <strong>Your Heara.</strong>
+            </h1>
+
+            <p class="hero-description">
+                Share your thoughts, discover new people,
+                start conversations and build genuine connections
+                in a place designed for people to connect.
+            </p>
+
+            <div class="hero-buttons">
+
+                <a href="/login"
+                   class="primary-button"
+                   id="startButton">
+
+                    <span>Get started</span>
+                    <span class="arrow">→</span>
+
+                </a>
+
+                <a href="#features"
+                   class="secondary-button">
+
+                    Explore Heara
+
+                </a>
+
+            </div>
+
+            <div class="hero-stats">
+
+                <div>
+                    <strong>Share</strong>
+                    <span>Your thoughts</span>
+                </div>
+
+                <div>
+                    <strong>Discover</strong>
+                    <span>New people</span>
+                </div>
+
+                <div>
+                    <strong>Connect</strong>
+                    <span>Real conversations</span>
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- Right visual -->
+        <section class="hero-visual">
+
+            <div class="visual-ring ring-one"></div>
+            <div class="visual-ring ring-two"></div>
+
+            <div class="hero-image-wrapper">
+
+                <div class="image-glow"></div>
+
+                <img
+                    src="{{ url_for('static', filename='images/heara-hero.png') }}"
+                    alt="Heara social connection"
+                    class="hero-image"
+                >
+
+            </div>
+
+
+            <!-- Floating cards -->
+
+            <div class="floating-card support-card">
+
+                <div class="mini-avatar">A</div>
+
+                <div>
+                    <strong>Someone supported you</strong>
+                    <small>Just now</small>
+                </div>
+
+                <div class="heart">♥</div>
+
+            </div>
+
+
+            <div class="floating-card message-card">
+
+                <div class="message-icon">✉</div>
+
+                <div>
+                    <strong>New message</strong>
+                    <small>Let's talk 👋</small>
+                </div>
+
+            </div>
+
+
+            <div class="floating-card connection-card">
+
+                <div class="connection-avatar">
+                    +
+                </div>
+
+                <div>
+                    <strong>New connection</strong>
+                    <small>Someone discovered you</small>
+                </div>
+
+            </div>
+
+
+            <div class="floating-card discover-card">
+
+                <div class="discover-icon">✦</div>
+
+                <div>
+                    <strong>Discover</strong>
+                    <small>Find your people</small>
+                </div>
+
+            </div>
+
+        </section>
+
+    </main>
+
+
+    <!-- Feature section -->
+    <section class="features-section" id="features">
+
+        <div class="section-heading">
+
+            <span>WHY HEARA</span>
+
+            <h2>
+                More than a feed.
+                <br>
+                It's a place to connect.
+            </h2>
+
+        </div>
+
+
+        <div class="feature-grid">
+
+            <div class="feature-card">
+
+                <div class="feature-icon">💬</div>
+
+                <h3>Share your thoughts</h3>
+
+                <p>
+                    Say what's on your mind and let your
+                    voice become part of the conversation.
+                </p>
+
+            </div>
+
+
+            <div class="feature-card">
+
+                <div class="feature-icon">✦</div>
+
+                <h3>Discover people</h3>
+
+                <p>
+                    Find people, explore their posts and
+                    discover conversations that interest you.
+                </p>
+
+            </div>
+
+
+            <div class="feature-card">
+
+                <div class="feature-icon">♥</div>
+
+                <h3>Support each other</h3>
+
+                <p>
+                    Show people that their words matter
+                    with simple reactions and conversations.
+                </p>
+
+            </div>
+
+
+            <div class="feature-card">
+
+                <div class="feature-icon">✉</div>
+
+                <h3>Stay connected</h3>
+
+                <p>
+                    Turn new connections into conversations
+                    through private messaging.
+                </p>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- About -->
+    <section class="about-section" id="about">
+
+        <div class="about-glow"></div>
+
+        <div class="about-content">
+
+            <span>WELCOME TO HEARA</span>
+
+            <h2>
+                Everyone has something
+                worth saying.
+            </h2>
+
+            <p>
+                Heara is built around a simple idea:
+                people should have a place where they
+                can talk, listen, discover and connect.
+            </p>
+
+            <a href="/login" class="primary-button">
+                Enter Heara →
+            </a>
+
+        </div>
+
+    </section>
+
+
+    <!-- Footer -->
+    <footer>
+
+        <div class="footer-brand">
+            <div class="brand-symbol">H</div>
+            <strong>Heara</strong>
+        </div>
+
+        <p>
+            Talk. Listen. Connect.
+        </p>
+
+    </footer>
+
+</div>
+
+
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+
+</body>
+</html>
