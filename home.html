@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Home — Heara</title>
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='home.css') }}">
+</head>
+
+<body>
+
+<div class="home-page">
+
+    <!-- BACKGROUND EFFECTS -->
+    <div class="background-glow glow-one"></div>
+    <div class="background-glow glow-two"></div>
+    <div class="background-glow glow-three"></div>
+
+    <div class="particles">
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+    </div>
+
+
+    <!-- TOP NAVIGATION -->
+    <header class="home-nav">
+
+        <a href="/home" class="home-brand">
+
+            <div class="brand-symbol">
+                H
+            </div>
+
+            <div class="brand-text">
+                <strong>Heara</strong>
+                <small>Talk. Listen. Connect.</small>
+            </div>
+
+        </a>
+
+
+        <nav class="main-nav">
+
+            <a href="/home" class="active">
+                <span>⌂</span>
+                Home
+            </a>
+
+            <a href="/profile">
+                <span>◎</span>
+                Profile
+            </a>
+
+            <a href="#">
+                <span>✦</span>
+                Discover
+            </a>
+
+            <a href="#">
+                <span>✉</span>
+                Messages
+            </a>
+
+            <a href="/logout" class="logout-link">
+                Log out
+            </a>
+
+        </nav>
+
+    </header>
+
+
+    <!-- MAIN CONTENT -->
+    <main class="home-container">
+
+
+        <!-- WELCOME -->
+        <section class="welcome-section">
+
+            <div>
+
+                <span class="welcome-label">
+                    HEARA SPACE
+                </span>
+
+                <h1>
+                    Welcome back,
+                    <span>{{ username }}</span>
+                </h1>
+
+                <p>
+                    What's on your mind today?
+                </p>
+
+            </div>
+
+            <div class="online-status">
+
+                <span class="status-dot"></span>
+
+                <span>
+                    You're connected
+                </span>
+
+            </div>
+
+        </section>
+
+
+        <!-- CREATE POST -->
+        <section class="composer-window">
+
+            <div class="window-top">
+
+                <div class="window-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+
+                <div class="window-title">
+                    Create a post
+                </div>
+
+                <div class="window-icon">
+                    ✦
+                </div>
+
+            </div>
+
+
+            <div class="composer-content">
+
+                <div class="composer-avatar">
+                    {{ username[0]|upper }}
+                </div>
+
+                <form method="POST"
+                      action="/create-post"
+                      class="composer-form">
+
+                    <textarea
+                        name="content"
+                        maxlength="1000"
+                        placeholder="Share something with Heara..."
+                        required></textarea>
+
+                    <div class="composer-bottom">
+
+                        <div class="composer-hint">
+                            <span>✦</span>
+                            Your voice matters.
+                        </div>
+
+                        <button type="submit"
+                                class="post-button">
+
+                            <span>Post</span>
+
+                            <span>
+                                →
+                            </span>
+
+                        </button>
+
+                    </div>
+
+                </form>
+
+            </div>
+
+        </section>
+
+
+        <!-- FEED TITLE -->
+        <div class="section-title">
+
+            <div>
+
+                <span>
+                    YOUR SPACE
+                </span>
+
+                <h2>
+                    Latest conversations
+                </h2>
+
+            </div>
+
+            <div class="feed-indicator">
+                ● LIVE
+            </div>
+
+        </div>
+
+
+        <!-- FEED -->
+        <section class="feed">
+
+            {% for post in posts %}
+
+            <article class="post-window">
+
+                <!-- POST HEADER -->
+                <div class="post-header">
+
+                    <div class="post-user">
+
+                        <div class="post-avatar">
+                            {{ post["username"][0]|upper }}
+                        </div>
+
+                        <div class="post-user-info">
+
+                            <strong>
+                                {{ post["username"] }}
+                            </strong>
+
+                            <span>
+                                {{ post["created_at"] }}
+                            </span>
+
+                        </div>
+
+                    </div>
+
+                    <button class="more-button">
+                        •••
+                    </button>
+
+                </div>
+
+
+                <!-- POST CONTENT -->
+                <div class="post-content">
+
+                    {{ post["content"] }}
+
+                </div>
+
+
+                <!-- POST ACTIONS -->
+                <div class="post-actions">
+
+                    <form method="POST"
+                          action="/like/{{ post['id'] }}">
+
+                        <button type="submit"
+                                class="support-button">
+
+                            <span class="heart-icon">
+                                ♥
+                            </span>
+
+                            <span>
+                                Support
+                            </span>
+
+                            <strong>
+                                {{ post["like_count"] }}
+                            </strong>
+
+                        </button>
+
+                    </form>
+
+
+                    <div class="comment-count">
+
+                        <span>💬</span>
+
+                        <span>
+                            Join the conversation
+                        </span>
+
+                    </div>
+
+                </div>
+
+
+                <!-- COMMENTS -->
+                <div class="comments">
+
+                    {% for comment in comments %}
+
+                        {% if comment["post_id"] == post["id"] %}
+
+                        <div class="comment">
+
+                            <div class="comment-avatar">
+                                {{ comment["username"][0]|upper }}
+                            </div>
+
+                            <div class="comment-bubble">
+
+                                <strong>
+                                    {{ comment["username"] }}
+                                </strong>
+
+                                <span>
+                                    {{ comment["content"] }}
+                                </span>
+
+                            </div>
+
+                        </div>
+
+                        {% endif %}
+
+                    {% endfor %}
+
+                </div>
+
+
+                <!-- COMMENT INPUT -->
+                <form method="POST"
+                      action="/comment/{{ post['id'] }}"
+                      class="comment-form">
+
+                    <div class="comment-input-icon">
+                        +
+                    </div>
+
+                    <input
+                        type="text"
+                        name="content"
+                        maxlength="500"
+                        placeholder="Add to the conversation..."
+                        required>
+
+                    <button type="submit">
+                        →
+                    </button>
+
+                </form>
+
+            </article>
+
+            {% else %}
+
+            <div class="empty-feed">
+
+                <div class="empty-icon">
+                    ✦
+                </div>
+
+                <h2>
+                    Your space is waiting.
+                </h2>
+
+                <p>
+                    Be the first person to share something with Heara.
+                </p>
+
+            </div>
+
+            {% endfor %}
+
+        </section>
+
+
+        <!-- PEOPLE -->
+        <section class="people-window">
+
+            <div class="people-heading">
+
+                <div>
+
+                    <span>
+                        DISCOVER
+                    </span>
+
+                    <h2>
+                        People on Heara
+                    </h2>
+
+                </div>
+
+                <div class="people-icon">
+                    ✦
+                </div>
+
+            </div>
+
+
+            <div class="people-list">
+
+                {% for person in users %}
+
+                <div class="person-card">
+
+                    <div class="person-info">
+
+                        <div class="person-avatar">
+                            {{ person["username"][0]|upper }}
+                        </div>
+
+                        <div>
+
+                            <strong>
+                                {{ person["username"] }}
+                            </strong>
+
+                            <span>
+                                Heara member
+                            </span>
+
+                        </div>
+
+                    </div>
+
+
+                    <form method="POST"
+                          action="/follow/{{ person['id'] }}">
+
+                        {% if person["id"] in following_ids %}
+
+                        <button type="submit"
+                                class="following-button">
+
+                            Following ✓
+
+                        </button>
+
+                        {% else %}
+
+                        <button type="submit"
+                                class="follow-button">
+
+                            Follow
+
+                        </button>
+
+                        {% endif %}
+
+                    </form>
+
+                </div>
+
+                {% else %}
+
+                <div class="no-people">
+
+                    <div>
+                        ✦
+                    </div>
+
+                    <p>
+                        You're currently the only person on Heara.
+                    </p>
+
+                </div>
+
+                {% endfor %}
+
+            </div>
+
+        </section>
+
+
+        <!-- FOOTER -->
+        <footer class="home-footer">
+
+            <div class="footer-brand">
+
+                <div class="brand-symbol">
+                    H
+                </div>
+
+                <strong>
+                    Heara
+                </strong>
+
+            </div>
+
+            <span>
+                Talk. Listen. Connect.
+            </span>
+
+        </footer>
+
+    </main>
+
+</div>
+
+
+<!-- SMALL INTERACTION SCRIPT -->
+<script>
+
+document.addEventListener("DOMContentLoaded", function () {
+
+    const composer =
+        document.querySelector(".composer-window");
+
+    if (composer) {
+
+        composer.addEventListener("mousemove", function (event) {
+
+            const rect =
+                composer.getBoundingClientRect();
+
+            const x =
+                event.clientX - rect.left;
+
+            const y =
+                event.clientY - rect.top;
+
+            const centerX =
+                rect.width / 2;
+
+            const centerY =
+                rect.height / 2;
+
+            const rotateY =
+                (x - centerX) / 80;
+
+            const rotateX =
+                (centerY - y) / 80;
+
+            composer.style.transform =
+                `perspective(1200px)
+                 rotateX(${rotateX}deg)
+                 rotateY(${rotateY}deg)
+                 translateY(-2px)`;
+
+        });
+
+        composer.addEventListener("mouseleave", function () {
+
+            composer.style.transform =
+                "perspective(1200px) rotateX(0deg) rotateY(0deg)";
+
+        });
+
+    }
+
+
+    document.querySelectorAll(".post-window").forEach(function (post) {
+
+        post.addEventListener("mousemove", function (event) {
+
+            const rect =
+                post.getBoundingClientRect();
+
+            const x =
+                event.clientX - rect.left;
+
+            const y =
+                event.clientY - rect.top;
+
+            const centerX =
+                rect.width / 2;
+
+            const centerY =
+                rect.height / 2;
+
+            const rotateY =
+                (x - centerX) / 180;
+
+            const rotateX =
+                (centerY - y) / 180;
+
+            post.style.transform =
+                `perspective(1200px)
+                 rotateX(${rotateX}deg)
+                 rotateY(${rotateY}deg)
+                 translateY(-3px)`;
+
+        });
+
+        post.addEventListener("mouseleave", function () {
+
+            post.style.transform =
+                "perspective(1200px) rotateX(0deg) rotateY(0deg)";
+
+        });
+
+    });
+
+});
+
+</script>
+
+</body>
+</html>
