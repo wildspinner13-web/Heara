@@ -1,0 +1,1068 @@
+```css
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body {
+    min-height: 100%;
+}
+
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: #050511;
+    color: white;
+    overflow-x: hidden;
+}
+
+
+/* =========================================
+   MAIN FUTURISTIC ENVIRONMENT
+========================================= */
+
+.auth-page {
+    min-height: 100vh;
+    position: relative;
+    overflow: hidden;
+
+    background:
+        radial-gradient(
+            circle at 75% 20%,
+            rgba(91, 75, 219, 0.25),
+            transparent 35%
+        ),
+        radial-gradient(
+            circle at 15% 80%,
+            rgba(35, 100, 255, 0.16),
+            transparent 35%
+        ),
+        radial-gradient(
+            circle at 50% 50%,
+            rgba(110, 70, 255, 0.05),
+            transparent 45%
+        ),
+        #050511;
+}
+
+
+/* =========================================
+   GLOWING BACKGROUND
+========================================= */
+
+.auth-glow {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+    filter: blur(110px);
+    opacity: 0.5;
+}
+
+.glow-one {
+    width: 430px;
+    height: 430px;
+    background: #5b4bdb;
+    right: -120px;
+    top: -120px;
+}
+
+.glow-two {
+    width: 330px;
+    height: 330px;
+    background: #276cff;
+    left: -150px;
+    bottom: 0;
+}
+
+.glow-three {
+    width: 260px;
+    height: 260px;
+    background: #a43cff;
+    right: 30%;
+    bottom: -180px;
+}
+
+
+/* =========================================
+   FLOATING PARTICLES
+========================================= */
+
+.particles span {
+    position: absolute;
+
+    width: 4px;
+    height: 4px;
+
+    border-radius: 50%;
+
+    background: white;
+
+    opacity: 0.3;
+
+    animation: particleMove 6s infinite ease-in-out;
+}
+
+.particles span:nth-child(1) {
+    left: 8%;
+    top: 20%;
+}
+
+.particles span:nth-child(2) {
+    left: 17%;
+    top: 70%;
+    animation-delay: 1s;
+}
+
+.particles span:nth-child(3) {
+    left: 28%;
+    top: 35%;
+    animation-delay: 2s;
+}
+
+.particles span:nth-child(4) {
+    left: 78%;
+    top: 25%;
+    animation-delay: 3s;
+}
+
+.particles span:nth-child(5) {
+    left: 90%;
+    top: 65%;
+    animation-delay: 1s;
+}
+
+.particles span:nth-child(6) {
+    left: 65%;
+    top: 80%;
+    animation-delay: 2s;
+}
+
+.particles span:nth-child(7) {
+    left: 45%;
+    top: 15%;
+    animation-delay: 4s;
+}
+
+.particles span:nth-child(8) {
+    left: 55%;
+    top: 90%;
+    animation-delay: 3s;
+}
+
+@keyframes particleMove {
+
+    0%,
+    100% {
+        transform: translateY(0);
+        opacity: 0.2;
+    }
+
+    50% {
+        transform: translateY(-30px);
+        opacity: 0.8;
+    }
+}
+
+
+/* =========================================
+   TOP NAVIGATION
+========================================= */
+
+.auth-nav {
+    position: relative;
+    z-index: 20;
+
+    height: 85px;
+
+    padding: 0 7%;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    border-bottom:
+        1px solid rgba(255, 255, 255, 0.07);
+
+    background:
+        rgba(5, 5, 17, 0.42);
+
+    backdrop-filter: blur(20px);
+}
+
+
+/* =========================================
+   HEARA BRAND
+========================================= */
+
+.auth-brand {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+
+    color: white;
+    text-decoration: none;
+}
+
+.brand-symbol {
+    width: 43px;
+    height: 43px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 13px;
+
+    background:
+        linear-gradient(
+            145deg,
+            #7767ff,
+            #33249d
+        );
+
+    box-shadow:
+        0 0 25px rgba(91, 75, 219, 0.5),
+        inset 0 1px rgba(255, 255, 255, 0.35);
+
+    font-size: 22px;
+    font-weight: 900;
+}
+
+.auth-brand strong {
+    display: block;
+    font-size: 21px;
+}
+
+.auth-brand small {
+    display: block;
+
+    color: #77778c;
+
+    font-size: 9px;
+
+    margin-top: 3px;
+}
+
+
+/* =========================================
+   TOP REGISTER BUTTON
+========================================= */
+
+.top-register {
+    text-decoration: none;
+
+    color: #d5d3df;
+
+    font-size: 13px;
+
+    padding: 11px 17px;
+
+    border-radius: 10px;
+
+    border:
+        1px solid rgba(255, 255, 255, 0.1);
+
+    background:
+        rgba(255, 255, 255, 0.04);
+
+    backdrop-filter: blur(15px);
+
+    transition: 0.25s;
+}
+
+.top-register:hover {
+    color: white;
+
+    background:
+        rgba(255, 255, 255, 0.09);
+
+    transform: translateY(-2px);
+
+    box-shadow:
+        0 10px 25px rgba(0, 0, 0, 0.25);
+}
+
+
+/* =========================================
+   MAIN AREA
+========================================= */
+
+.auth-main {
+    position: relative;
+    z-index: 5;
+
+    min-height: calc(100vh - 85px);
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 70px 20px;
+
+    perspective: 1300px;
+}
+
+
+/* =========================================
+   LOGIN GLASS WINDOW
+========================================= */
+
+.login-window {
+    position: relative;
+
+    width: 450px;
+    max-width: 100%;
+
+    border-radius: 28px;
+
+    padding: 2px;
+
+    background:
+        linear-gradient(
+            145deg,
+            rgba(255, 255, 255, 0.25),
+            rgba(255, 255, 255, 0.04),
+            rgba(120, 100, 255, 0.3)
+        );
+
+    box-shadow:
+        0 40px 100px rgba(0, 0, 0, 0.55),
+        0 0 70px rgba(91, 75, 219, 0.16);
+
+    transform:
+        perspective(1200px)
+        rotateX(2deg);
+
+    animation:
+        loginAppear 0.9s ease forwards,
+        loginFloat 7s ease-in-out infinite;
+
+    transform-style: preserve-3d;
+}
+
+@keyframes loginAppear {
+
+    from {
+        opacity: 0;
+
+        transform:
+            perspective(1200px)
+            translateY(50px)
+            rotateX(8deg)
+            scale(0.94);
+    }
+
+    to {
+        opacity: 1;
+
+        transform:
+            perspective(1200px)
+            translateY(0)
+            rotateX(2deg)
+            scale(1);
+    }
+}
+
+@keyframes loginFloat {
+
+    0%,
+    100% {
+        transform:
+            perspective(1200px)
+            rotateX(2deg)
+            translateY(0);
+    }
+
+    50% {
+        transform:
+            perspective(1200px)
+            rotateX(2deg)
+            translateY(-8px);
+    }
+}
+
+
+/* =========================================
+   INNER GLASS WINDOW
+========================================= */
+
+.login-content {
+    position: relative;
+    z-index: 2;
+
+    padding: 42px;
+
+    border-radius: 27px;
+
+    background:
+        linear-gradient(
+            145deg,
+            rgba(20, 20, 39, 0.94),
+            rgba(10, 10, 24, 0.90)
+        );
+
+    backdrop-filter: blur(30px);
+
+    overflow: hidden;
+}
+
+.window-glow {
+    position: absolute;
+
+    width: 240px;
+    height: 240px;
+
+    top: -140px;
+    right: -100px;
+
+    border-radius: 50%;
+
+    background: #6755ff;
+
+    filter: blur(80px);
+
+    opacity: 0.18;
+}
+
+
+/* =========================================
+   LOGIN LOGO
+========================================= */
+
+.login-logo {
+    width: 62px;
+    height: 62px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 19px;
+
+    background:
+        linear-gradient(
+            145deg,
+            #7d6cff,
+            #3a28a9
+        );
+
+    box-shadow:
+        0 15px 35px rgba(91, 75, 219, 0.35),
+        inset 0 1px rgba(255, 255, 255, 0.4);
+
+    font-size: 31px;
+
+    font-weight: 900;
+
+    margin-bottom: 25px;
+}
+
+
+/* =========================================
+   HEADING
+========================================= */
+
+.small-heading {
+    display: block;
+
+    color: #8174ff;
+
+    font-size: 10px;
+
+    font-weight: bold;
+
+    letter-spacing: 2px;
+
+    margin-bottom: 10px;
+}
+
+.login-heading h1 {
+    font-size: 31px;
+
+    letter-spacing: -1px;
+
+    margin-bottom: 10px;
+}
+
+.login-heading p {
+    color: #858598;
+
+    font-size: 13px;
+
+    line-height: 1.6;
+
+    margin-bottom: 30px;
+}
+
+
+/* =========================================
+   INPUT SECTION
+========================================= */
+
+.input-group {
+    margin-bottom: 19px;
+}
+
+.input-group label {
+    display: block;
+
+    color: #b7b5c4;
+
+    font-size: 12px;
+
+    font-weight: bold;
+
+    margin-bottom: 8px;
+}
+
+
+/* =========================================
+   3D GLASS INPUT CONTAINER
+========================================= */
+
+.input-wrapper {
+    position: relative;
+
+    display: flex;
+    align-items: center;
+
+    padding: 2px;
+
+    border-radius: 15px;
+
+    background:
+        linear-gradient(
+            135deg,
+            rgba(255, 255, 255, 0.16),
+            rgba(117, 102, 255, 0.08),
+            rgba(255, 255, 255, 0.03)
+        );
+
+    box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.08),
+        0 12px 30px rgba(0, 0, 0, 0.25);
+
+    transition: 0.3s;
+
+    transform-style: preserve-3d;
+}
+
+
+/* =========================================
+   INPUT HOVER / FOCUS 3D EFFECT
+========================================= */
+
+.input-wrapper:hover {
+    transform:
+        translateY(-1px)
+        perspective(700px)
+        rotateX(1deg);
+
+    box-shadow:
+        0 15px 35px rgba(0, 0, 0, 0.3),
+        inset 0 1px 1px rgba(255, 255, 255, 0.12);
+}
+
+.input-wrapper:focus-within {
+    transform:
+        translateY(-2px)
+        perspective(700px)
+        rotateX(1deg);
+
+    background:
+        linear-gradient(
+            135deg,
+            rgba(255, 255, 255, 0.25),
+            rgba(117, 102, 255, 0.30),
+            rgba(91, 75, 219, 0.12)
+        );
+
+    box-shadow:
+        0 15px 40px rgba(91, 75, 219, 0.20),
+        0 0 30px rgba(117, 102, 255, 0.13),
+        inset 0 1px 1px rgba(255, 255, 255, 0.12);
+}
+
+
+/* =========================================
+   ACTUAL TYPING FIELD
+========================================= */
+
+.input-wrapper input {
+    width: 100%;
+
+    height: 51px;
+
+    border:
+        1px solid rgba(255, 255, 255, 0.06);
+
+    border-radius: 13px;
+
+    background:
+        linear-gradient(
+            145deg,
+            rgba(255, 255, 255, 0.07),
+            rgba(255, 255, 255, 0.025)
+        );
+
+    color: white;
+
+    padding:
+        0 15px 0 42px;
+
+    outline: none;
+
+    font-size: 13px;
+
+    backdrop-filter: blur(18px);
+
+    box-shadow:
+        inset 0 1px 8px rgba(255, 255, 255, 0.025),
+        inset 0 -8px 20px rgba(0, 0, 0, 0.12);
+
+    transition: 0.3s;
+}
+
+
+/* =========================================
+   INPUT PLACEHOLDER
+========================================= */
+
+.input-wrapper input::placeholder {
+    color: #66667b;
+}
+
+
+/* =========================================
+   INPUT WHEN TYPING
+========================================= */
+
+.input-wrapper input:focus {
+    background:
+        linear-gradient(
+            145deg,
+            rgba(117, 102, 255, 0.13),
+            rgba(255, 255, 255, 0.045)
+        );
+
+    border-color:
+        rgba(132, 117, 255, 0.5);
+
+    box-shadow:
+        inset 0 1px 8px rgba(255, 255, 255, 0.05),
+        0 0 20px rgba(117, 102, 255, 0.1);
+}
+
+
+/* =========================================
+   INPUT ICON
+========================================= */
+
+.input-icon {
+    position: absolute;
+
+    left: 14px;
+
+    color: #8174ff;
+
+    font-size: 12px;
+
+    z-index: 5;
+
+    pointer-events: none;
+
+    text-shadow:
+        0 0 12px rgba(129, 116, 255, 0.5);
+}
+
+
+/* =========================================
+   SHOW PASSWORD
+========================================= */
+
+.show-password {
+    position: absolute;
+
+    right: 10px;
+
+    border: none;
+
+    background: transparent;
+
+    color: #7771a9;
+
+    cursor: pointer;
+
+    font-size: 10px;
+
+    padding: 7px;
+
+    transition: 0.2s;
+}
+
+.show-password:hover {
+    color: white;
+}
+
+
+/* =========================================
+   LOGIN BUTTON
+========================================= */
+
+.login-button {
+    width: 100%;
+
+    height: 53px;
+
+    border: none;
+
+    border-radius: 13px;
+
+    margin-top: 5px;
+
+    cursor: pointer;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    gap: 13px;
+
+    color: white;
+
+    font-weight: bold;
+
+    font-size: 13px;
+
+    background:
+        linear-gradient(
+            135deg,
+            #7867ff,
+            #4c36cf
+        );
+
+    box-shadow:
+        0 15px 35px rgba(91, 75, 219, 0.3),
+        inset 0 1px rgba(255, 255, 255, 0.3);
+
+    transition: 0.3s;
+}
+
+.login-button:hover {
+    transform: translateY(-3px);
+
+    box-shadow:
+        0 20px 45px rgba(91, 75, 219, 0.45);
+}
+
+.login-button:active {
+    transform:
+        translateY(1px)
+        scale(0.98);
+}
+
+.login-arrow {
+    font-size: 19px;
+}
+
+
+/* =========================================
+   DIVIDER
+========================================= */
+
+.divider {
+    display: flex;
+
+    align-items: center;
+
+    gap: 15px;
+
+    color: #525265;
+
+    font-size: 11px;
+
+    margin: 27px 0;
+}
+
+.divider::before,
+.divider::after {
+    content: "";
+
+    flex: 1;
+
+    height: 1px;
+
+    background:
+        rgba(255, 255, 255, 0.08);
+}
+
+
+/* =========================================
+   REGISTER TEXT
+========================================= */
+
+.register-text {
+    text-align: center;
+
+    color: #77778b;
+
+    font-size: 12px;
+}
+
+.register-text a {
+    color: #9185ff;
+
+    text-decoration: none;
+
+    font-weight: bold;
+
+    transition: 0.2s;
+}
+
+.register-text a:hover {
+    color: white;
+}
+
+
+/* =========================================
+   FOOTER TEXT
+========================================= */
+
+.login-footer {
+    text-align: center;
+
+    color: #454557;
+
+    font-size: 10px;
+
+    margin-top: 30px;
+}
+
+
+/* =========================================
+   FLOATING GLASS CARDS
+========================================= */
+
+.side-card {
+    position: absolute;
+
+    z-index: 10;
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 10px;
+
+    padding: 12px 15px;
+
+    border-radius: 15px;
+
+    background:
+        linear-gradient(
+            145deg,
+            rgba(30, 30, 55, 0.72),
+            rgba(12, 12, 27, 0.55)
+        );
+
+    border:
+        1px solid rgba(255, 255, 255, 0.1);
+
+    backdrop-filter: blur(20px);
+
+    box-shadow:
+        0 25px 55px rgba(0, 0, 0, 0.35),
+        inset 0 1px rgba(255, 255, 255, 0.08);
+
+    white-space: nowrap;
+}
+
+.side-card strong {
+    display: block;
+
+    font-size: 11px;
+}
+
+.side-card span {
+    display: block;
+
+    color: #6f6f83;
+
+    font-size: 9px;
+
+    margin-top: 4px;
+}
+
+
+/* =========================================
+   MINI ICONS
+========================================= */
+
+.mini-icon {
+    width: 34px;
+    height: 34px;
+
+    display: flex;
+
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 10px;
+
+    background:
+        linear-gradient(
+            135deg,
+            #806cff,
+            #3926a6
+        );
+
+    box-shadow:
+        0 5px 15px rgba(91, 75, 219, 0.25);
+}
+
+.mini-icon.blue {
+    background:
+        linear-gradient(
+            135deg,
+            #3f8cff,
+            #2440a5
+        );
+}
+
+.mini-icon.pink {
+    background:
+        linear-gradient(
+            135deg,
+            #b85cff,
+            #672ca6
+        );
+}
+
+
+/* =========================================
+   FLOATING CARD POSITIONS
+========================================= */
+
+.card-one {
+    left: calc(50% - 480px);
+    top: 27%;
+
+    animation:
+        cardFloat 5s ease-in-out infinite;
+}
+
+.card-two {
+    right: calc(50% - 475px);
+    top: 20%;
+
+    animation:
+        cardFloat 6s ease-in-out infinite reverse;
+}
+
+.card-three {
+    right: calc(50% - 450px);
+    bottom: 23%;
+
+    animation:
+        cardFloat 7s ease-in-out infinite;
+}
+
+
+/* =========================================
+   CARD FLOAT ANIMATION
+========================================= */
+
+@keyframes cardFloat {
+
+    0%,
+    100% {
+        transform:
+            translateY(0)
+            rotateZ(0);
+    }
+
+    50% {
+        transform:
+            translateY(-17px)
+            rotateZ(1deg);
+    }
+}
+
+
+/* =========================================
+   MOBILE
+========================================= */
+
+@media (max-width: 900px) {
+
+    .side-card {
+        display: none;
+    }
+
+    .auth-main {
+        padding: 45px 20px;
+    }
+}
+
+
+@media (max-width: 600px) {
+
+    .auth-nav {
+        height: 70px;
+        padding: 0 5%;
+    }
+
+    .auth-brand strong {
+        font-size: 19px;
+    }
+
+    .top-register {
+        font-size: 11px;
+        padding: 9px 12px;
+    }
+
+    .login-content {
+        padding: 30px 23px;
+    }
+
+    .login-heading h1 {
+        font-size: 27px;
+    }
+
+    .login-window {
+        border-radius: 22px;
+    }
+
+    .login-content {
+        border-radius: 21px;
+    }
+}
+
+
+/* =========================================
+   VERY SMALL SCREENS
+========================================= */
+
+@media (max-width: 380px) {
+
+    .login-content {
+        padding: 25px 17px;
+    }
+
+    .login-heading h1 {
+        font-size: 24px;
+    }
+
+    .login-heading p {
+        font-size: 12px;
+    }
+
+    .login-logo {
+        width: 55px;
+        height: 55px;
+    }
+}
+```
