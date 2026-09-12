@@ -1,14 +1,57 @@
-from flask import Flask, request, redirect, url_for, session, jsonify, render_template_string, abort
-import sqlite3
 import os
+import sqlite3
 import secrets
+import hashlib
+import mimetypes
 from functools import wraps
+from urllib.parse import quote
+
+import requests
+from flask import (
+    Flask,
+    request,
+    redirect,
+    url_for,
+    session,
+    jsonify,
+    render_template_string,
+    send_from_directory,
+)
+
+# ============================================================
+# HEARA
+# Single-file social platform
+# ============================================================
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("HEARA_SECRET", secrets.token_hex(32))
 
-DB = os.path.join(os.path.dirname(__file__), "heara.db")
+app.secret_key = os.environ.get("HEARA_SECRET_KEY", "heara-change-this-secret")
+
+DATABASE = os.environ.get("HEARA_DB", "heara.db")
+UPLOAD_FOLDER = os.path.join("static", "uploads")
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Pexels key is read from Render Environment Variables.
+PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "").strip()
+
 LIVE_FOLLOWERS = 250
+MAX_UPLOAD_MB = 100
+
+ALLOWED_VIDEO = {
+    "video/mp4",
+    "video/webm",
+    "video/quicktime",
+    "video/x-msvideo",
+    "video/x-matroska",
+}
+
+ALLOWED_IMAGE = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+}
 
 
 # ============================================================
@@ -16,1296 +59,1889 @@ LIVE_FOLLOWERS = 250
 # ============================================================
 
 def db():
-    con = sqlite3.connect(DB)
-    con.row_factory = sqlite3.Row
-    return con
+    connection = sqlite3.connect(DATABASE)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    return connection
+
+
+def column_exists(connection, table, column):
+    rows = connection.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(row["name"] == column for row in rows)
+
+
+def add_column_if_missing(connection, table, column, definition):
+    if not column_exists(connection, table, column):
+        connection.execute(
+            f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+        )
 
 
 def init_db():
-    con = db()
-    cur = con.cursor()
+    connection = db()
 
-    cur.executescript("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        bio TEXT DEFAULT '',
-        avatar TEXT DEFAULT '',
-        followers INTEGER DEFAULT 0,
-        following INTEGER DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS posts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        caption TEXT DEFAULT '',
-        media_url TEXT DEFAULT '',
-        media_type TEXT DEFAULT 'text',
-        likes INTEGER DEFAULT 0,
-        views INTEGER DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS likes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        post_id INTEGER NOT NULL,
-        UNIQUE(user_id, post_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS comments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        post_id INTEGER NOT NULL,
-        user_id INTEGER NOT NULL,
-        text TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS follows (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        follower_id INTEGER NOT NULL,
-        following_id INTEGER NOT NULL,
-        UNIQUE(follower_id, following_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        sender_id INTEGER NOT NULL,
-        receiver_id INTEGER NOT NULL,
-        text TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS notifications (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        text TEXT NOT NULL,
-        seen INTEGER DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS live_rooms (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        room_code TEXT UNIQUE NOT NULL,
-        user_id INTEGER NOT NULL,
-        title TEXT DEFAULT 'Heara Live',
-        active INTEGER DEFAULT 1,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            display_name TEXT DEFAULT '',
+            bio TEXT DEFAULT '',
+            avatar_url TEXT DEFAULT '',
+            followers INTEGER DEFAULT 0,
+            following INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
     """)
 
-    con.commit()
-    con.close()
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS posts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            content TEXT DEFAULT '',
+            media_url TEXT DEFAULT '',
+            media_type TEXT DEFAULT '',
+            source TEXT DEFAULT 'user',
+            source_url TEXT DEFAULT '',
+            creator_name TEXT DEFAULT '',
+            creator_url TEXT DEFAULT '',
+            caption TEXT DEFAULT '',
+            views INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS likes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            post_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, post_id),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE
+        )
+    """)
+
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            post_id INTEGER NOT NULL,
+            comment TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE
+        )
+    """)
+
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS follows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            follower_id INTEGER NOT NULL,
+            following_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(follower_id, following_id),
+            FOREIGN KEY(follower_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(following_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_id INTEGER NOT NULL,
+            receiver_id INTEGER NOT NULL,
+            message TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(receiver_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            actor_id INTEGER,
+            notification_type TEXT NOT NULL,
+            post_id INTEGER,
+            text TEXT DEFAULT '',
+            is_read INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(actor_id) REFERENCES users(id) ON DELETE SET NULL,
+            FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE SET NULL
+        )
+    """)
+
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS live_rooms (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id INTEGER NOT NULL,
+            room_code TEXT UNIQUE NOT NULL,
+            title TEXT DEFAULT 'Live on Heara',
+            is_live INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ended_at TIMESTAMP,
+            FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
+    # Upgrade older Heara databases safely.
+    add_column_if_missing(connection, "users", "display_name", "TEXT DEFAULT ''")
+    add_column_if_missing(connection, "users", "bio", "TEXT DEFAULT ''")
+    add_column_if_missing(connection, "users", "avatar_url", "TEXT DEFAULT ''")
+    add_column_if_missing(connection, "users", "followers", "INTEGER DEFAULT 0")
+    add_column_if_missing(connection, "users", "following", "INTEGER DEFAULT 0")
+
+    add_column_if_missing(connection, "posts", "source", "TEXT DEFAULT 'user'")
+    add_column_if_missing(connection, "posts", "source_url", "TEXT DEFAULT ''")
+    add_column_if_missing(connection, "posts", "creator_name", "TEXT DEFAULT ''")
+    add_column_if_missing(connection, "posts", "creator_url", "TEXT DEFAULT ''")
+    add_column_if_missing(connection, "posts", "caption", "TEXT DEFAULT ''")
+    add_column_if_missing(connection, "posts", "views", "INTEGER DEFAULT 0")
+
+    connection.commit()
+    connection.close()
 
 
 init_db()
 
 
 # ============================================================
-# AUTH
+# HELPERS
 # ============================================================
 
 def current_user():
-    if "user_id" not in session:
+    user_id = session.get("user_id")
+
+    if not user_id:
         return None
 
-    con = db()
-    user = con.execute(
-        "SELECT * FROM users WHERE id=?",
-        (session["user_id"],)
+    connection = db()
+    user = connection.execute(
+        "SELECT * FROM users WHERE id = ?",
+        (user_id,)
     ).fetchone()
-    con.close()
+    connection.close()
+
     return user
 
 
-def login_required(fn):
-    @wraps(fn)
+def login_required(function):
+    @wraps(function)
     def wrapper(*args, **kwargs):
-        if not current_user():
+        if not session.get("user_id"):
             return redirect(url_for("login"))
-        return fn(*args, **kwargs)
+        return function(*args, **kwargs)
+
     return wrapper
 
 
+def hash_password(password):
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def make_room_code():
+    return secrets.token_urlsafe(8)
+
+
+def safe_filename(filename):
+    filename = os.path.basename(filename)
+    filename = filename.replace(" ", "_")
+
+    allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+    filename = "".join(c for c in filename if c in allowed)
+
+    if not filename:
+        filename = "upload"
+
+    return filename
+
+
+def save_upload(file):
+    if not file or not file.filename:
+        return None, None, "No file selected."
+
+    file.seek(0, 2)
+    size = file.tell()
+    file.seek(0)
+
+    if size > MAX_UPLOAD_MB * 1024 * 1024:
+        return None, None, f"File is too large. Maximum is {MAX_UPLOAD_MB} MB."
+
+    content_type = (file.mimetype or "").lower()
+
+    if content_type in ALLOWED_VIDEO:
+        media_type = "video"
+    elif content_type in ALLOWED_IMAGE:
+        media_type = "image"
+    else:
+        return None, None, "That file type is not supported."
+
+    extension = os.path.splitext(file.filename)[1].lower()
+
+    if not extension:
+        extension = mimetypes.guess_extension(content_type) or ""
+
+    filename = (
+        secrets.token_hex(12)
+        + extension
+    )
+
+    path = os.path.join(UPLOAD_FOLDER, filename)
+
+    file.save(path)
+
+    return (
+        "/static/uploads/" + filename,
+        media_type,
+        None,
+    )
+
+
+def post_counts(connection, post_id, user_id=None):
+    likes = connection.execute(
+        "SELECT COUNT(*) AS c FROM likes WHERE post_id = ?",
+        (post_id,)
+    ).fetchone()["c"]
+
+    comments = connection.execute(
+        "SELECT COUNT(*) AS c FROM comments WHERE post_id = ?",
+        (post_id,)
+    ).fetchone()["c"]
+
+    liked = False
+
+    if user_id:
+        liked = connection.execute(
+            """
+            SELECT 1 FROM likes
+            WHERE post_id = ? AND user_id = ?
+            """,
+            (post_id, user_id)
+        ).fetchone() is not None
+
+    return likes, comments, liked
+
+
+def enrich_post(row, user_id=None, connection=None):
+    own_connection = False
+
+    if connection is None:
+        connection = db()
+        own_connection = True
+
+    likes, comments, liked = post_counts(
+        connection,
+        row["id"],
+        user_id
+    )
+
+    data = dict(row)
+    data["likes"] = likes
+    data["comments"] = comments
+    data["liked"] = liked
+
+    if own_connection:
+        connection.close()
+
+    return data
+
+
+def pexels_request(endpoint, params):
+    if not PEXELS_API_KEY:
+        return None, "Pexels API key is not configured."
+
+    try:
+        response = requests.get(
+            "https://api.pexels.com/v1/" + endpoint,
+            headers={
+                "Authorization": PEXELS_API_KEY
+            },
+            params=params,
+            timeout=15
+        )
+
+        if response.status_code != 200:
+            return None, (
+                f"Pexels returned HTTP {response.status_code}."
+            )
+
+        return response.json(), None
+
+    except requests.RequestException as error:
+        return None, str(error)
+
+
+def choose_video_file(video):
+    files = video.get("video_files") or []
+
+    if not files:
+        return None
+
+    # Prefer portrait files.
+    portrait = [
+        item for item in files
+        if item.get("height", 0) > item.get("width", 0)
+    ]
+
+    candidates = portrait or files
+
+    # Prefer a reasonable HD/Full-HD file.
+    candidates = sorted(
+        candidates,
+        key=lambda item: (
+            abs((item.get("height") or 720) - 1280),
+            abs((item.get("width") or 720) - 720)
+        )
+    )
+
+    return candidates[0].get("link")
+
+
+def get_pexels_videos(page=1, query=None):
+    queries = [
+        "trending",
+        "people",
+        "music",
+        "fashion",
+        "travel",
+        "nature",
+        "sports",
+        "city",
+        "lifestyle",
+        "technology"
+    ]
+
+    if not query:
+        query = queries[(page - 1) % len(queries)]
+
+    data, error = pexels_request(
+        "videos/search",
+        {
+            "query": query,
+            "orientation": "portrait",
+            "size": "medium",
+            "page": page,
+            "per_page": 12
+        }
+    )
+
+    if error:
+        return [], error
+
+    videos = []
+
+    for video in data.get("videos", []):
+        link = choose_video_file(video)
+
+        if not link:
+            continue
+
+        user = video.get("user") or {}
+
+        videos.append({
+            "id": "pexels-" + str(video.get("id")),
+            "video_id": video.get("id"),
+            "media_url": link,
+            "thumbnail": video.get("image", ""),
+            "duration": video.get("duration", 0),
+            "creator_name": user.get("name", "Pexels Creator"),
+            "creator_url": user.get("url", "https://www.pexels.com/")
+            ,
+            "source_url": video.get(
+                "url",
+                "https://www.pexels.com/videos/"
+            ),
+            "source": "pexels",
+            "caption": "Discover on Heara"
+        })
+
+    return videos, None
+
+
 # ============================================================
-# DESIGN
+# SHARED PAGE DESIGN
 # ============================================================
 
-PAGE = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>{{ title }} • Heara</title>
-
+BASE_STYLE = """
 <style>
 * {
-    box-sizing:border-box;
-    margin:0;
-    padding:0;
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    font-family: Inter, Arial, sans-serif;
+    background:
+        radial-gradient(circle at 15% 10%, rgba(104, 71, 255, .22), transparent 30%),
+        radial-gradient(circle at 85% 20%, rgba(0, 220, 255, .13), transparent 28%),
+        #070817;
+    color: #fff;
+    min-height: 100%;
 }
 
 body {
-    font-family:Arial,Helvetica,sans-serif;
-    background:#070612;
-    color:#fff;
-    min-height:100vh;
+    overflow-x: hidden;
 }
 
 a {
-    color:inherit;
-    text-decoration:none;
+    color: inherit;
+    text-decoration: none;
 }
 
 button,
 input,
-textarea {
-    font:inherit;
+textarea,
+select {
+    font: inherit;
 }
 
 button {
-    cursor:pointer;
+    cursor: pointer;
 }
 
 .nav {
-    height:68px;
-    position:fixed;
-    top:0;
-    left:0;
-    right:0;
-    z-index:100;
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    padding:0 28px;
-    background:rgba(7,6,18,.88);
-    backdrop-filter:blur(18px);
-    border-bottom:1px solid rgba(255,255,255,.08);
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    height: 66px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 22px;
+    background: rgba(7, 8, 23, .86);
+    backdrop-filter: blur(18px);
+    border-bottom: 1px solid rgba(255,255,255,.08);
 }
 
 .logo {
-    font-size:28px;
-    font-weight:900;
-    letter-spacing:-1px;
-    background:linear-gradient(90deg,#9b5cff,#ff4fd8);
-    -webkit-background-clip:text;
-    color:transparent;
+    font-size: 25px;
+    font-weight: 900;
+    letter-spacing: -.8px;
 }
 
-.search {
-    width:320px;
-    background:#151326;
-    border:1px solid #29243e;
-    color:#fff;
-    border-radius:30px;
-    padding:11px 18px;
-    outline:none;
+.logo span {
+    background: linear-gradient(90deg, #9d6cff, #29e6ff);
+    -webkit-background-clip: text;
+    color: transparent;
 }
 
 .navlinks {
-    display:flex;
-    gap:20px;
-    align-items:center;
+    display: flex;
+    gap: 8px;
+    align-items: center;
 }
 
 .navlinks a {
-    color:#bbb6ce;
-    font-size:14px;
+    padding: 10px 13px;
+    border-radius: 12px;
+    color: #bfc4db;
 }
 
 .navlinks a:hover {
-    color:white;
+    background: rgba(255,255,255,.07);
+    color: white;
 }
 
-.avatar {
-    width:38px;
-    height:38px;
-    border-radius:50%;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    background:linear-gradient(135deg,#9b5cff,#ff4fd8);
-    font-weight:bold;
-}
-
-.page {
-    padding:92px 25px 90px;
-    max-width:1250px;
-    margin:auto;
+.container {
+    width: min(1100px, calc(100% - 30px));
+    margin: 30px auto;
 }
 
 .card {
-    background:rgba(20,17,37,.86);
-    border:1px solid rgba(255,255,255,.08);
-    border-radius:22px;
-    padding:22px;
-    margin-bottom:20px;
-    box-shadow:0 15px 50px rgba(0,0,0,.25);
+    background: rgba(20, 22, 48, .75);
+    border: 1px solid rgba(255,255,255,.09);
+    border-radius: 22px;
+    padding: 20px;
+    box-shadow: 0 20px 70px rgba(0,0,0,.25);
 }
 
 .btn {
-    border:0;
-    border-radius:25px;
-    padding:11px 20px;
-    color:white;
-    background:linear-gradient(135deg,#8d4dff,#ec3fc9);
-    font-weight:bold;
+    border: 0;
+    border-radius: 13px;
+    padding: 11px 17px;
+    color: white;
+    background: linear-gradient(135deg, #7555ff, #3f9cff);
+    font-weight: 800;
 }
 
 .btn.secondary {
-    background:#211d34;
+    background: rgba(255,255,255,.09);
 }
 
-.input,
+.btn.danger {
+    background: #d93861;
+}
+
+input,
+textarea,
+select {
+    width: 100%;
+    background: rgba(0,0,0,.25);
+    border: 1px solid rgba(255,255,255,.1);
+    color: white;
+    padding: 13px;
+    border-radius: 13px;
+    outline: none;
+}
+
 textarea {
-    width:100%;
-    background:#0d0b18;
-    color:white;
-    border:1px solid #302a47;
-    border-radius:14px;
-    padding:13px;
-    outline:none;
+    min-height: 120px;
+    resize: vertical;
 }
 
-textarea {
-    min-height:120px;
-    resize:vertical;
-}
-
-.grid {
-    display:grid;
-    grid-template-columns:2fr 1fr;
-    gap:22px;
-}
-
-.post {
-    overflow:hidden;
-}
-
-.post-head {
-    display:flex;
-    align-items:center;
-    gap:12px;
-    margin-bottom:15px;
-}
-
-.post-user {
-    font-weight:bold;
-}
-
-.post-time {
-    color:#777188;
-    font-size:12px;
-}
-
-.post-media {
-    width:100%;
-    max-height:650px;
-    object-fit:cover;
-    border-radius:16px;
-    background:#000;
-}
-
-.post-actions {
-    display:flex;
-    gap:10px;
-    margin-top:15px;
-}
-
-.action {
-    border:0;
-    background:#211d34;
-    color:#ddd8e9;
-    padding:9px 14px;
-    border-radius:20px;
-}
-
-.action:hover {
-    background:#332b4d;
-}
-
-.bottom {
-    display:none;
-}
-
-.hero {
-    min-height:calc(100vh - 68px);
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    align-items:center;
-    gap:30px;
-}
-
-.hero h1 {
-    font-size:clamp(50px,8vw,100px);
-    line-height:.9;
-    margin-bottom:25px;
-}
-
-.gradient {
-    background:linear-gradient(90deg,#9d55ff,#ff4ed4);
-    -webkit-background-clip:text;
-    color:transparent;
-}
-
-.hero p {
-    color:#aaa4bd;
-    font-size:19px;
-    line-height:1.6;
-    max-width:600px;
-}
-
-.hero-img {
-    width:100%;
-    max-width:570px;
-    margin:auto;
-    filter:drop-shadow(0 30px 80px rgba(150,60,255,.35));
-    animation:float 4s ease-in-out infinite;
-}
-
-@keyframes float {
-    50% { transform:translateY(-14px); }
-}
-
-.auth {
-    max-width:450px;
-    margin:60px auto;
-}
-
-.auth h1 {
-    margin-bottom:25px;
-}
-
-.auth form {
-    display:grid;
-    gap:14px;
-}
-
-.fyp {
-    height:calc(100vh - 68px);
-    margin-top:68px;
-    overflow-y:auto;
-    scroll-snap-type:y mandatory;
-    background:#000;
-}
-
-.fyp::-webkit-scrollbar {
-    display:none;
-}
-
-.fyp-item {
-    height:calc(100vh - 68px);
-    min-height:600px;
-    scroll-snap-align:start;
-    position:relative;
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    background:#000;
-    overflow:hidden;
-}
-
-.fyp-video {
-    height:100%;
-    width:100%;
-    object-fit:contain;
-}
-
-.fyp-overlay {
-    position:absolute;
-    left:25px;
-    bottom:35px;
-    right:100px;
-    z-index:3;
-    text-shadow:0 2px 12px #000;
-}
-
-.fyp-overlay strong {
-    font-size:18px;
-}
-
-.fyp-actions {
-    position:absolute;
-    right:20px;
-    bottom:80px;
-    display:flex;
-    flex-direction:column;
-    gap:12px;
-    z-index:4;
-}
-
-.fyp-btn {
-    width:52px;
-    height:52px;
-    border-radius:50%;
-    border:1px solid rgba(255,255,255,.2);
-    background:rgba(0,0,0,.55);
-    color:white;
-    font-size:21px;
-}
-
-.sound {
-    position:absolute;
-    top:25px;
-    right:20px;
-    z-index:5;
-}
-
-.profile-cover {
-    height:220px;
-    border-radius:25px;
-    background:
-      radial-gradient(circle at 20% 30%,#8b45ff55,transparent 30%),
-      radial-gradient(circle at 80% 60%,#ff3fd855,transparent 30%),
-      #151126;
-}
-
-.profile-info {
-    padding:0 25px 25px;
-    margin-top:-35px;
-}
-
-.profile-avatar {
-    width:90px;
-    height:90px;
-    border-radius:50%;
-    border:5px solid #070612;
-    background:linear-gradient(135deg,#8b4dff,#ff45ce);
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    font-size:30px;
-    font-weight:bold;
-}
-
-.live-box {
-    min-height:500px;
-    border-radius:25px;
-    display:flex;
-    flex-direction:column;
-    justify-content:center;
-    align-items:center;
-    background:
-      radial-gradient(circle,#39165c,transparent 45%),
-      #090711;
-    text-align:center;
-}
-
-.live-video {
-    width:min(900px,100%);
-    max-height:650px;
-    background:#000;
-    border-radius:20px;
-}
-
-.comment {
-    padding:10px 0;
-    border-bottom:1px solid #252036;
+.form-group {
+    margin-bottom: 15px;
 }
 
 .muted {
-    color:#8f899f;
+    color: #aeb3ca;
 }
 
 .error {
-    padding:18px;
-    border-radius:15px;
-    background:#381525;
-    color:#ff9eb5;
+    background: rgba(255, 55, 90, .12);
+    border: 1px solid rgba(255, 55, 90, .3);
+    padding: 13px;
+    border-radius: 12px;
+    margin-bottom: 15px;
 }
 
-@media(max-width:850px) {
+.success {
+    background: rgba(50, 220, 150, .12);
+    border: 1px solid rgba(50, 220, 150, .3);
+    padding: 13px;
+    border-radius: 12px;
+}
 
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 18px;
+}
+
+.avatar {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: linear-gradient(135deg, #7354ff, #25d8ff);
+}
+
+.post-media {
+    width: 100%;
+    max-height: 650px;
+    object-fit: cover;
+    border-radius: 17px;
+    background: #000;
+}
+
+.post-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+
+.action-btn {
+    background: rgba(255,255,255,.07);
+    border: 1px solid rgba(255,255,255,.07);
+    color: white;
+    padding: 9px 13px;
+    border-radius: 12px;
+}
+
+.action-btn.active {
+    background: rgba(255,70,120,.2);
+}
+
+.footer {
+    text-align: center;
+    padding: 40px 20px;
+    color: #858ba7;
+}
+
+@media(max-width: 700px) {
     .nav {
-        padding:0 15px;
-    }
-
-    .search {
-        display:none;
+        padding: 0 12px;
     }
 
     .navlinks {
-        display:none;
+        gap: 2px;
     }
 
-    .page {
-        padding:85px 14px 90px;
+    .navlinks a {
+        font-size: 12px;
+        padding: 8px;
     }
 
-    .grid,
-    .hero {
-        grid-template-columns:1fr;
-    }
-
-    .hero {
-        text-align:center;
-        padding-top:30px;
-    }
-
-    .hero-img {
-        max-width:400px;
-    }
-
-    .bottom {
-        position:fixed;
-        display:flex;
-        bottom:0;
-        left:0;
-        right:0;
-        height:65px;
-        z-index:100;
-        background:rgba(9,7,18,.94);
-        backdrop-filter:blur(18px);
-        border-top:1px solid rgba(255,255,255,.1);
-        justify-content:space-around;
-        align-items:center;
-    }
-
-    .bottom a {
-        font-size:11px;
-        color:#aaa4bb;
-        text-align:center;
-    }
-
-    .bottom span {
-        display:block;
-        font-size:21px;
-        margin-bottom:3px;
-    }
-
-    .fyp,
-    .fyp-item {
-        height:100vh;
-        margin-top:0;
+    .container {
+        width: calc(100% - 18px);
+        margin: 18px auto;
     }
 }
 </style>
-</head>
-
-<body>
-
-<nav class="nav">
-    <a href="{{ url_for('home') }}" class="logo">HEARA</a>
-
-    <form action="{{ url_for('search') }}" method="get">
-        <input class="search" name="q" placeholder="Search Heara...">
-    </form>
-
-    <div class="navlinks">
-        <a href="{{ url_for('home') }}">Home</a>
-        <a href="{{ url_for('fyp') }}">FYP</a>
-        <a href="{{ url_for('live') }}">Live</a>
-        <a href="{{ url_for('inbox') }}">Inbox</a>
-
-        {% if user %}
-        <a href="{{ url_for('profile', username=user['username']) }}">
-            <div class="avatar">{{ user['username'][0].upper() }}</div>
-        </a>
-        {% else %}
-        <a href="{{ url_for('login') }}">Login</a>
-        {% endif %}
-    </div>
-</nav>
-
-{% block content %}{% endblock %}
-
-<div class="bottom">
-    <a href="{{ url_for('home') }}"><span>⌂</span>Home</a>
-    <a href="{{ url_for('fyp') }}"><span>▶</span>FYP</a>
-    <a href="{{ url_for('create') }}"><span>＋</span>Create</a>
-    <a href="{{ url_for('live') }}"><span>🔴</span>Live</a>
-    <a href="{{ url_for('inbox') }}"><span>✉</span>Inbox</a>
-</div>
-
-</body>
-</html>
 """
 
 
+def render_page(title, content):
+    user = current_user()
+
+    nav = f"""
+    <nav class="nav">
+        <a class="logo" href="{url_for('home')}">
+            <span>Heara</span>
+        </a>
+
+        <div class="navlinks">
+            <a href="{url_for('fyp')}">FYP</a>
+            <a href="{url_for('home')}">Home</a>
+            <a href="{url_for('create')}">＋ Post</a>
+            <a href="{url_for('live')}">🔴 Live</a>
+            {"<a href='" + url_for("inbox") + "'>💬</a>" if user else ""}
+            {"<a href='" + url_for("notifications") + "'>🔔</a>" if user else ""}
+            {
+                "<a href='" + url_for("profile", username=user["username"]) + "'>Profile</a>"
+                if user else
+                "<a href='" + url_for("login") + "'>Login</a>"
+            }
+        </div>
+    </nav>
+    """
+
+    return f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0"
+        >
+        <title>{title} — Heara</title>
+        {BASE_STYLE}
+    </head>
+    <body>
+        {nav}
+        {content}
+        <div class="footer">
+            <strong>Heara</strong> · Your world. Your voice.
+        </div>
+    </body>
+    </html>
+    """
+
+
 # ============================================================
-# HOME
+# LANDING PAGE
 # ============================================================
 
 @app.route("/")
 def home():
     user = current_user()
 
-    con = db()
-    posts = con.execute("""
-        SELECT posts.*, users.username
+    connection = db()
+
+    posts = connection.execute("""
+        SELECT
+            posts.*,
+            users.username,
+            users.display_name,
+            users.avatar_url
         FROM posts
-        JOIN users ON users.id=posts.user_id
+        LEFT JOIN users ON users.id = posts.user_id
+        WHERE posts.source = 'user'
         ORDER BY posts.id DESC
-        LIMIT 30
+        LIMIT 20
     """).fetchall()
-    con.close()
 
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
-        <main class="page">
+    connection.close()
 
-        {% if not user %}
-        <section class="hero">
+    cards = ""
 
-            <div>
-                <div class="logo" style="font-size:20px;margin-bottom:15px">
-                    THE SOCIAL WORLD, REIMAGINED.
+    for post in posts:
+        media = ""
+
+        if post["media_type"] == "video":
+            media = f"""
+            <video
+                class="post-media"
+                src="{post["media_url"]}"
+                controls
+                playsinline
+                preload="metadata">
+            </video>
+            """
+        elif post["media_type"] == "image":
+            media = f"""
+            <img
+                class="post-media"
+                src="{post["media_url"]}"
+                alt="Heara post">
+            """
+
+        author = post["display_name"] or post["username"] or "Heara user"
+
+        cards += f"""
+        <article class="card">
+            <div style="display:flex;gap:12px;align-items:center;margin-bottom:13px;">
+                <div>
+                    <strong>{author}</strong><br>
+                    <span class="muted">@{post["username"] or "heara"}</span>
                 </div>
+            </div>
 
-                <h1>
-                    Welcome to<br>
-                    <span class="gradient">Heara.</span>
+            {media}
+
+            <p>{post["caption"] or post["content"]}</p>
+
+            <div class="post-actions">
+                <button
+                    class="action-btn"
+                    onclick="shareHeara('{request.host_url}post/{post["id"]}')">
+                    ↗ Share
+                </button>
+            </div>
+        </article>
+        """
+
+    if not cards:
+        cards = """
+        <div class="card">
+            <h2>Welcome to Heara 👋</h2>
+            <p class="muted">
+                Your social world starts here.
+                Open FYP to discover videos.
+            </p>
+        </div>
+        """
+
+    content = f"""
+    <main class="container">
+
+        <section style="
+            min-height:420px;
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:30px;
+            align-items:center;
+        ">
+            <div>
+                <p class="muted">THE SOCIAL WORLD FOR YOU</p>
+
+                <h1 style="
+                    font-size:clamp(48px,8vw,88px);
+                    line-height:.92;
+                    margin:10px 0;
+                ">
+                    Hear<br>
+                    <span style="
+                        background:linear-gradient(90deg,#9d6cff,#29e6ff);
+                        -webkit-background-clip:text;
+                        color:transparent;
+                    ">a.</span>
                 </h1>
 
-                <p>
-                    Share your world. Discover creators.
-                    Talk, watch, connect and go live.
-                    Everything social, in one place.
+                <p class="muted" style="font-size:18px;max-width:550px;">
+                    Discover videos, share your voice, connect with people,
+                    message your friends and go live.
                 </p>
 
-                <br>
-
-                <a class="btn" href="{{ url_for('register') }}">
-                    Join Heara
-                </a>
-
-                <a class="btn secondary" href="{{ url_for('login') }}">
-                    Login
-                </a>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:22px;">
+                    <a class="btn" href="{url_for('fyp')}">
+                        Explore FYP
+                    </a>
+                    {
+                        f"<a class='btn secondary' href='{url_for('create')}'>Create</a>"
+                        if user else
+                        f"<a class='btn secondary' href='{url_for('register')}'>Join Heara</a>"
+                    }
+                </div>
             </div>
 
-            <div>
-                <img class="hero-img"
-                     src="/static/images/heara-hero.png"
-                     onerror="this.style.display='none'">
+            <div style="text-align:center;">
+                <img
+                    src="{url_for('static', filename='images/heara-hero.png')}"
+                    alt="Heara"
+                    style="
+                        width:min(100%,480px);
+                        max-height:430px;
+                        object-fit:contain;
+                        filter:drop-shadow(0 25px 70px rgba(95,70,255,.35));
+                    "
+                    onerror="this.style.display='none';"
+                >
             </div>
-
         </section>
 
-        {% else %}
+        <h2>Latest on Heara</h2>
 
-        <div class="grid">
+        <section class="grid">
+            {cards}
+        </section>
 
-            <section>
+    </main>
 
-                <div class="card">
-                    <h2>Welcome back, @{{ user['username'] }} 👋</h2>
-                    <p class="muted" style="margin-top:8px">
-                        What's happening on Heara?
-                    </p>
+    <script>
+    async function shareHeara(url) {{
+        if (navigator.share) {{
+            try {{
+                await navigator.share({{
+                    title: "Heara",
+                    text: "Check this out on Heara",
+                    url: url
+                }});
+                return;
+            }} catch (e) {{}}
+        }}
 
-                    <br>
+        try {{
+            await navigator.clipboard.writeText(url);
+            alert("Heara link copied!");
+        }} catch (e) {{
+            prompt("Copy this Heara link:", url);
+        }}
+    }}
+    </script>
+    """
 
-                    <a class="btn" href="{{ url_for('create') }}">
-                        ＋ Create post
-                    </a>
-
-                    <a class="btn secondary" href="{{ url_for('fyp') }}">
-                        ▶ Watch FYP
-                    </a>
-                </div>
-
-                {% for p in posts %}
-                <article class="card post">
-
-                    <div class="post-head">
-                        <div class="avatar">{{ p['username'][0].upper() }}</div>
-
-                        <div>
-                            <div class="post-user">
-                                @{{ p['username'] }}
-                            </div>
-                            <div class="post-time">
-                                {{ p['created_at'] }}
-                            </div>
-                        </div>
-                    </div>
-
-                    {% if p['caption'] %}
-                    <p style="margin-bottom:15px">{{ p['caption'] }}</p>
-                    {% endif %}
-
-                    {% if p['media_type'] == 'video' and p['media_url'] %}
-                    <video
-                        class="post-media"
-                        controls
-                        playsinline
-                        preload="metadata"
-                        src="{{ p['media_url'] }}">
-                    </video>
-                    {% elif p['media_type'] == 'image' and p['media_url'] %}
-                    <img class="post-media" src="{{ p['media_url'] }}">
-                    {% endif %}
-
-                    <div class="post-actions">
-                        <form action="{{ url_for('like', post_id=p['id']) }}" method="post">
-                            <button class="action">❤️ {{ p['likes'] }}</button>
-                        </form>
-
-                        <a class="action" href="{{ url_for('post', post_id=p['id']) }}">
-                            💬 Comments
-                        </a>
-
-                        <button class="action"
-                                onclick="navigator.clipboard.writeText(location.origin + '/post/{{ p['id'] }}')">
-                            ↗ Share
-                        </button>
-                    </div>
-
-                </article>
-                {% else %}
-
-                <div class="card">
-                    <h2>No posts yet.</h2>
-                    <p class="muted">Be the first person to post on Heara.</p>
-                </div>
-
-                {% endfor %}
-
-            </section>
-
-            <aside>
-
-                <div class="card">
-                    <h3>Heara Live 🔴</h3>
-                    <p class="muted" style="margin:10px 0">
-                        Watch creators live.
-                    </p>
-                    <a class="btn" href="{{ url_for('live') }}">Open Live</a>
-                </div>
-
-                <div class="card">
-                    <h3>Your Heara</h3>
-                    <br>
-                    <a href="{{ url_for('profile', username=user['username']) }}">
-                        Profile →
-                    </a>
-                    <br><br>
-                    <a href="{{ url_for('inbox') }}">
-                        Messages →
-                    </a>
-                    <br><br>
-                    <a href="{{ url_for('notifications') }}">
-                        Notifications →
-                    </a>
-                    <br><br>
-                    <a href="{{ url_for('creator') }}">
-                        Creator Studio →
-                    </a>
-                </div>
-
-            </aside>
-
-        </div>
-
-        {% endif %}
-
-        </main>
-        """),
-        title="Home",
-        user=user,
-        posts=posts
-    )
+    return render_page("Home", content)
 
 
 # ============================================================
-# FYP
+# FYP — PEXELS
 # ============================================================
 
 @app.route("/fyp")
 @app.route("/videos")
 def fyp():
+    page = max(1, request.args.get("page", 1, type=int))
+    query = request.args.get("q", "").strip() or None
 
-    con = db()
+    videos, error = get_pexels_videos(page, query)
 
-    videos = con.execute("""
-        SELECT posts.*, users.username
-        FROM posts
-        JOIN users ON users.id=posts.user_id
-        WHERE posts.media_type='video'
-          AND posts.media_url != ''
-        ORDER BY posts.id DESC
-        LIMIT 100
-    """).fetchall()
+    user = current_user()
 
-    con.close()
+    video_html = ""
 
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
+    for index, video in enumerate(videos):
+        share_url = request.host_url.rstrip("/") + "/pexels/" + str(
+            video["video_id"]
+        )
 
-        {% if not videos %}
-        <div class="page">
-            <div class="card" style="text-align:center">
-                <h1>No videos yet</h1>
-                <p class="muted" style="margin:12px">
-                    Create the first video on Heara.
-                </p>
-                {% if user %}
-                <a class="btn" href="{{ url_for('create') }}">Create video</a>
-                {% endif %}
+        video_html += f"""
+        <section class="fyp-slide" data-index="{index}">
+            <video
+                class="fyp-video"
+                src="{video["media_url"]}"
+                poster="{video["thumbnail"]}"
+                playsinline
+                loop
+                preload="metadata"
+                data-video-id="{video["video_id"]}">
+            </video>
+
+            <div class="fyp-gradient"></div>
+
+            <div class="fyp-info">
+                <div class="fyp-creator">
+                    <strong>@{video["creator_name"]}</strong>
+                </div>
+
+                <p>{video["caption"]}</p>
+
+                <a
+                    href="{video["source_url"]}"
+                    target="_blank"
+                    rel="noopener"
+                    class="pexels-credit">
+                    Video by {video["creator_name"]} on Pexels
+                </a>
             </div>
-        </div>
 
-        {% else %}
-
-        <main class="fyp" id="fyp">
-
-            {% for v in videos %}
-
-            <section class="fyp-item">
-
-                <video
-                    class="fyp-video"
-                    playsinline
-                    loop
-                    preload="metadata"
-                    src="{{ v['media_url'] }}">
-                </video>
-
-                <button class="fyp-btn sound"
-                        onclick="toggleSound(this)">
-                    🔇
+            <div class="fyp-actions">
+                <button
+                    class="fyp-action"
+                    onclick="toggleLikeVisual(this)">
+                    ❤️
+                    <span>Like</span>
                 </button>
 
-                <div class="fyp-overlay">
-                    <strong>@{{ v['username'] }}</strong>
+                <button
+                    class="fyp-action"
+                    onclick="openCommentBox(this)">
+                    💬
+                    <span>Comment</span>
+                </button>
 
-                    {% if v['caption'] %}
-                    <p style="margin-top:10px">
-                        {{ v['caption'] }}
-                    </p>
-                    {% endif %}
-                </div>
+                <button
+                    class="fyp-action"
+                    onclick="shareHeara('{share_url}')">
+                    ↗️
+                    <span>Share</span>
+                </button>
 
-                <div class="fyp-actions">
+                <button
+                    class="fyp-action sound-button"
+                    onclick="toggleSound(this)">
+                    🔇
+                    <span>Sound</span>
+                </button>
 
-                    <form action="{{ url_for('like', post_id=v['id']) }}" method="post">
-                        <button class="fyp-btn">❤️</button>
-                    </form>
+                <button
+                    class="fyp-action"
+                    onclick="this.closest('.fyp-slide').querySelector('video').requestFullscreen()">
+                    ⛶
+                    <span>Full</span>
+                </button>
+            </div>
 
-                    <a class="fyp-btn"
-                       href="{{ url_for('post', post_id=v['id']) }}"
-                       style="display:flex;align-items:center;justify-content:center">
-                       💬
-                    </a>
+            <div class="comment-box">
+                <input
+                    placeholder="Write a comment..."
+                    onkeydown="
+                        if(event.key==='Enter') {{
+                            this.value='';
+                            this.blur();
+                        }}
+                    "
+                >
+            </div>
+        </section>
+        """
 
-                    <button class="fyp-btn"
-                            onclick="navigator.clipboard.writeText(location.origin + '/post/{{ v['id'] }}')">
-                        ↗
-                    </button>
-
-                </div>
-
+    if not video_html:
+        if error:
+            video_html = f"""
+            <section class="fyp-error">
+                <h2>FYP couldn't load right now.</h2>
+                <p>{error}</p>
+                <button class="btn" onclick="location.reload()">
+                    Try again
+                </button>
             </section>
+            """
+        else:
+            video_html = """
+            <section class="fyp-error">
+                <h2>No videos found.</h2>
+                <button class="btn" onclick="location.reload()">
+                    Refresh
+                </button>
+            </section>
+            """
 
-            {% endfor %}
+    content = f"""
+    <style>
+    body {
+        overflow:hidden;
+    }
 
-        </main>
+    .fyp-wrap {
+        position:fixed;
+        top:66px;
+        left:0;
+        right:0;
+        bottom:0;
+        background:#000;
+    }
 
-        <script>
-        const feed = document.getElementById("fyp");
+    .fyp-feed {
+        height:100%;
+        overflow-y:auto;
+        scroll-snap-type:y mandatory;
+        scrollbar-width:none;
+        overscroll-behavior-y:contain;
+    }
 
-        const observer = new IntersectionObserver((entries) => {
+    .fyp-feed::-webkit-scrollbar {
+        display:none;
+    }
 
-            entries.forEach(entry => {
+    .fyp-slide {
+        position:relative;
+        height:100%;
+        min-height:100%;
+        scroll-snap-align:start;
+        scroll-snap-stop:always;
+        background:#000;
+        overflow:hidden;
+    }
 
-                const video = entry.target.querySelector("video");
+    .fyp-video {
+        position:absolute;
+        inset:0;
+        width:100%;
+        height:100%;
+        object-fit:cover;
+        background:#000;
+    }
 
-                if (!video) return;
+    .fyp-gradient {
+        position:absolute;
+        inset:0;
+        pointer-events:none;
+        background:
+            linear-gradient(
+                to top,
+                rgba(0,0,0,.86),
+                transparent 35%,
+                rgba(0,0,0,.08)
+            );
+    }
 
-                if (entry.isIntersecting) {
+    .fyp-info {
+        position:absolute;
+        left:25px;
+        bottom:30px;
+        width:min(65%,600px);
+        z-index:5;
+        text-shadow:0 2px 12px #000;
+    }
 
-                    document.querySelectorAll(".fyp-video").forEach(v => {
-                        if (v !== video) {
-                            v.pause();
-                        }
-                    });
+    .fyp-info p {
+        margin:9px 0;
+        font-size:17px;
+    }
 
-                    video.currentTime = 0;
+    .pexels-credit {
+        color:#fff;
+        text-decoration:underline;
+        font-size:12px;
+        opacity:.85;
+    }
 
-                    /*
-                     Browsers normally block autoplay with sound.
-                     Therefore autoplay begins muted.
-                    */
-                    video.muted = true;
+    .fyp-actions {
+        position:absolute;
+        right:22px;
+        bottom:28px;
+        z-index:10;
+        display:flex;
+        flex-direction:column;
+        gap:11px;
+        align-items:center;
+    }
 
-                    video.play().catch(() => {});
+    .fyp-action {
+        border:0;
+        color:white;
+        background:rgba(0,0,0,.48);
+        backdrop-filter:blur(10px);
+        width:62px;
+        min-height:58px;
+        border-radius:18px;
+        display:flex;
+        flex-direction:column;
+        justify-content:center;
+        align-items:center;
+        gap:3px;
+        font-size:20px;
+    }
 
-                } else {
-                    video.pause();
-                }
+    .fyp-action span {
+        font-size:9px;
+        color:#ddd;
+    }
 
-            });
+    .fyp-action:hover {
+        background:rgba(117,85,255,.65);
+    }
 
-        }, {threshold:0.65});
+    .comment-box {
+        display:none;
+        position:absolute;
+        bottom:110px;
+        left:20px;
+        right:100px;
+        z-index:20;
+    }
 
-        document.querySelectorAll(".fyp-item")
-            .forEach(item => observer.observe(item));
+    .comment-box input {
+        background:rgba(10,10,20,.92);
+    }
 
+    .fyp-error {
+        height:100%;
+        display:flex;
+        flex-direction:column;
+        justify-content:center;
+        align-items:center;
+        text-align:center;
+        padding:30px;
+        background:
+            radial-gradient(circle,#241c58,#05050c 65%);
+    }
 
-        function toggleSound(button) {
-
-            const item = button.closest(".fyp-item");
-            const video = item.querySelector("video");
-
-            /*
-             Turn sound on only after the user interacts.
-            */
-            video.muted = !video.muted;
-
-            if (!video.muted) {
-                video.volume = 1;
-                button.textContent = "🔊";
-                video.play().catch(() => {});
-            } else {
-                button.textContent = "🔇";
-            }
+    @media(max-width:700px) {
+        .fyp-wrap {
+            top:58px;
         }
 
+        .fyp-info {
+            left:14px;
+            bottom:20px;
+            width:70%;
+        }
 
-        /*
-        Mouse wheel support.
-        */
-        let scrolling = false;
+        .fyp-actions {
+            right:9px;
+            bottom:18px;
+        }
 
-        feed.addEventListener("wheel", function(e) {
+        .fyp-action {
+            width:53px;
+            min-height:52px;
+            border-radius:15px;
+        }
+    }
+    </style>
 
-            if (scrolling) return;
+    <div class="fyp-wrap">
+        <div class="fyp-feed" id="fypFeed">
+            {video_html}
+        </div>
+    </div>
 
-            scrolling = true;
+    <script>
+    const feed = document.getElementById("fypFeed");
 
-            const direction = e.deltaY > 0 ? 1 : -1;
+    function toggleLikeVisual(button) {{
+        button.classList.toggle("liked");
+        button.firstChild.textContent =
+            button.classList.contains("liked") ? "❤️" : "🤍";
+    }}
 
-            feed.scrollBy({
-                top: direction * window.innerHeight,
-                behavior: "smooth"
-            });
+    function openCommentBox(button) {{
+        const slide = button.closest(".fyp-slide");
+        const box = slide.querySelector(".comment-box");
 
-            setTimeout(() => {
-                scrolling = false;
-            }, 700);
+        box.style.display =
+            box.style.display === "block" ? "none" : "block";
 
-        });
+        if (box.style.display === "block") {{
+            box.querySelector("input").focus();
+        }}
+    }}
 
+    function toggleSound(button) {{
+        const slide = button.closest(".fyp-slide");
+        const video = slide.querySelector("video");
 
-        /*
-        Keyboard support.
-        */
-        document.addEventListener("keydown", function(e) {
+        video.muted = !video.muted;
 
-            if (e.key === "ArrowDown") {
-                feed.scrollBy({
-                    top: window.innerHeight,
-                    behavior:"smooth"
-                });
-            }
+        button.firstChild.textContent =
+            video.muted ? "🔇" : "🔊";
+    }}
 
-            if (e.key === "ArrowUp") {
-                feed.scrollBy({
-                    top: -window.innerHeight,
-                    behavior:"smooth"
-                });
-            }
+    async function shareHeara(url) {{
+        if (navigator.share) {{
+            try {{
+                await navigator.share({{
+                    title: "Heara",
+                    text: "Check this video on Heara",
+                    url: url
+                }});
+                return;
+            }} catch (e) {{}}
+        }}
 
-        });
-        </script>
+        try {{
+            await navigator.clipboard.writeText(url);
+            alert("Heara link copied!");
+        }} catch (e) {{
+            prompt("Copy this Heara link:", url);
+        }}
+    }}
 
-        {% endif %}
+    function playVisibleVideos() {{
+        const videos = document.querySelectorAll(".fyp-video");
 
-        """),
-        title="FYP",
-        user=current_user(),
-        videos=videos
-    )
+        videos.forEach(video => {{
+            if (video.closest(".fyp-slide").classList.contains("visible")) {{
+                video.play().catch(() => {{}});
+            }} else {{
+                video.pause();
+            }}
+        }});
+    }}
+
+    const observer = new IntersectionObserver(
+        entries => {{
+            entries.forEach(entry => {{
+                const slide = entry.target;
+                const video = slide.querySelector("video");
+
+                if (entry.isIntersecting && entry.intersectionRatio > .65) {{
+                    slide.classList.add("visible");
+
+                    // Browsers normally require autoplay to be muted.
+                    video.muted = true;
+                    video.play().catch(() => {{}});
+                }} else {{
+                    slide.classList.remove("visible");
+                    video.pause();
+                }}
+            }});
+        }},
+        {{
+            root: feed,
+            threshold: [0, .65, 1]
+        }}
+    );
+
+    document.querySelectorAll(".fyp-slide").forEach(slide => {{
+        observer.observe(slide);
+    }});
+
+    // Keyboard support.
+    document.addEventListener("keydown", event => {{
+        if (event.key === "ArrowDown") {{
+            feed.scrollBy({{
+                top: window.innerHeight,
+                behavior:"smooth"
+            }});
+        }}
+
+        if (event.key === "ArrowUp") {{
+            feed.scrollBy({{
+                top: -window.innerHeight,
+                behavior:"smooth"
+            }});
+        }}
+    }});
+
+    // Mouse wheel support.
+    let wheelLock = false;
+
+    feed.addEventListener("wheel", event => {{
+        if (wheelLock) return;
+
+        wheelLock = true;
+
+        feed.scrollBy({{
+            top: event.deltaY > 0
+                ? window.innerHeight
+                : -window.innerHeight,
+            behavior:"smooth"
+        }});
+
+        setTimeout(() => wheelLock = false, 650);
+    }}, {{passive:true}});
+
+    // Load another Pexels page near the end.
+    feed.addEventListener("scroll", () => {{
+        if (
+            feed.scrollTop + feed.clientHeight
+            >= feed.scrollHeight - feed.clientHeight * 1.5
+        ) {{
+            const currentPage = {page};
+
+            if (!window.hearaLoadingMore) {{
+                window.hearaLoadingMore = true;
+
+                const query = {json.dumps(query or "")};
+
+                const next =
+                    "/fyp?page=" +
+                    (currentPage + 1) +
+                    (query ? "&q=" + encodeURIComponent(query) : "");
+
+                fetch(next)
+                    .then(response => response.text())
+                    .then(html => {{
+                        // The server-rendered next page is intentionally
+                        // not injected directly because that would duplicate
+                        // the complete document.
+                        //
+                        // Instead, navigate when the current batch is nearly
+                        // finished.
+                        window.hearaLoadingMore = false;
+                    }})
+                    .catch(() => {{
+                        window.hearaLoadingMore = false;
+                    }});
+            }}
+        }}
+    }});
+
+    // First video.
+    setTimeout(() => {{
+        const first = document.querySelector(".fyp-slide");
+
+        if (first) {{
+            first.classList.add("visible");
+
+            const video = first.querySelector("video");
+            video.muted = true;
+            video.play().catch(() => {{}});
+        }}
+    }}, 250);
+    </script>
+    """
+
+    return render_page("For You", content)
 
 
 # ============================================================
-# CREATE
+# CREATE / POST
 # ============================================================
 
 @app.route("/create", methods=["GET", "POST"])
 @login_required
 def create():
+    user = current_user()
+    error = ""
 
     if request.method == "POST":
-
         caption = request.form.get("caption", "").strip()
-        media_url = request.form.get("media_url", "").strip()
-        media_type = request.form.get("media_type", "text")
+        content = request.form.get("content", "").strip()
+        post_type = request.form.get("post_type", "text")
 
-        con = db()
+        media_url = ""
+        media_type = ""
 
-        con.execute("""
-            INSERT INTO posts
-            (user_id, caption, media_url, media_type)
-            VALUES (?, ?, ?, ?)
-        """, (
-            current_user()["id"],
-            caption,
-            media_url,
-            media_type
-        ))
+        uploaded = request.files.get("media")
 
-        con.commit()
-        con.close()
+        if uploaded and uploaded.filename:
+            media_url, media_type, upload_error = save_upload(uploaded)
 
-        return redirect(url_for("home"))
+            if upload_error:
+                error = upload_error
 
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
+        elif post_type == "text":
+            media_type = ""
 
-        <main class="page">
+        else:
+            error = "Please choose a photo or video."
 
-            <div class="card" style="max-width:700px;margin:auto">
+        if not error and not caption and not content and not media_url:
+            error = "Your post is empty."
 
-                <h1>Create on Heara</h1>
+        if not error:
+            connection = db()
 
-                <p class="muted" style="margin:8px 0 25px">
-                    Share something with the Heara community.
-                </p>
+            connection.execute("""
+                INSERT INTO posts (
+                    user_id,
+                    content,
+                    media_url,
+                    media_type,
+                    source,
+                    caption
+                )
+                VALUES (?, ?, ?, ?, 'user', ?)
+            """, (
+                user["id"],
+                content,
+                media_url,
+                media_type,
+                caption
+            ))
 
-                <form method="post">
+            connection.commit()
+            connection.close()
+
+            return redirect(url_for("home"))
+
+    content = f"""
+    <main class="container">
+
+        <div class="card" style="max-width:750px;margin:auto;">
+
+            <h1>Create on Heara</h1>
+
+            <p class="muted">
+                Record something, choose a video/photo from your device,
+                or simply write a post.
+            </p>
+
+            {"<div class='error'>" + error + "</div>" if error else ""}
+
+            <form
+                method="POST"
+                enctype="multipart/form-data"
+                id="postForm">
+
+                <div class="form-group">
+                    <label><strong>What are you posting?</strong></label>
+
+                    <select name="post_type" id="postType">
+                        <option value="text">📝 Text</option>
+                        <option value="video">🎥 Video</option>
+                        <option value="image">📷 Photo</option>
+                    </select>
+                </div>
+
+                <div
+                    class="form-group"
+                    id="mediaArea"
+                    style="display:none;">
+
+                    <label><strong>Choose media</strong></label>
+
+                    <input
+                        type="file"
+                        name="media"
+                        id="mediaInput"
+                        accept="video/*,image/*">
+
+                    <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+
+                        <button
+                            type="button"
+                            class="btn"
+                            onclick="startCamera()">
+                            📹 Camera
+                        </button>
+
+                        <button
+                            type="button"
+                            class="btn secondary"
+                            onclick="stopCamera()">
+                            Stop camera
+                        </button>
+                    </div>
+
+                    <video
+                        id="cameraPreview"
+                        autoplay
+                        playsinline
+                        muted
+                        style="
+                            display:none;
+                            width:100%;
+                            margin-top:15px;
+                            border-radius:18px;
+                            background:#000;
+                        ">
+                    </video>
+
+                    <button
+                        type="button"
+                        class="btn"
+                        id="recordButton"
+                        onclick="toggleRecording()"
+                        style="display:none;margin-top:10px;">
+                        🔴 Start recording
+                    </button>
+
+                    <video
+                        id="recordedPreview"
+                        controls
+                        playsinline
+                        style="
+                            display:none;
+                            width:100%;
+                            margin-top:15px;
+                            border-radius:18px;
+                            background:#000;
+                        ">
+                    </video>
+                </div>
+
+                <div class="form-group">
+                    <label><strong>Caption</strong></label>
 
                     <textarea
                         name="caption"
-                        placeholder="What's on your mind?"
-                    ></textarea>
+                        placeholder="Say something about your post..."></textarea>
+                </div>
 
-                    <br><br>
+                <div class="form-group" id="textArea">
+                    <label><strong>Text post</strong></label>
 
-                    <input
-                        class="input"
-                        name="media_url"
-                        placeholder="Video or image URL (optional)"
-                    >
+                    <textarea
+                        name="content"
+                        placeholder="What's happening?"></textarea>
+                </div>
 
-                    <br><br>
+                <button class="btn" type="submit">
+                    Publish to Heara
+                </button>
 
-                    <select class="input" name="media_type">
-                        <option value="text">Text</option>
-                        <option value="video">Video</option>
-                        <option value="image">Image</option>
-                    </select>
+            </form>
+        </div>
 
-                    <br><br>
+    </main>
 
-                    <button class="btn">
-                        Publish
-                    </button>
+    <script>
+    let cameraStream = null;
+    let recorder = null;
+    let recordedChunks = [];
 
-                </form>
+    const postType = document.getElementById("postType");
+    const mediaArea = document.getElementById("mediaArea");
+    const textArea = document.getElementById("textArea");
+    const mediaInput = document.getElementById("mediaInput");
 
-                <br>
+    postType.addEventListener("change", () => {{
+        const type = postType.value;
 
-                <p class="muted">
-                    Note: direct large-video uploading will be connected
-                    to cloud storage in the production version.
-                </p>
+        mediaArea.style.display =
+            type === "video" || type === "image"
+                ? "block"
+                : "none";
 
-            </div>
+        textArea.style.display =
+            type === "text" ? "block" : "block";
 
-        </main>
+        if (type === "video") {{
+            mediaInput.accept = "video/*";
+        }} else if (type === "image") {{
+            mediaInput.accept = "image/*";
+        }}
+    }});
 
-        """),
-        title="Create",
-        user=current_user()
-    )
+    async function startCamera() {{
+        try {{
+            cameraStream = await navigator.mediaDevices.getUserMedia({{
+                video:true,
+                audio:true
+            }});
+
+            const preview =
+                document.getElementById("cameraPreview");
+
+            preview.srcObject = cameraStream;
+            preview.style.display = "block";
+
+            document.getElementById("recordButton")
+                .style.display = "inline-block";
+
+        }} catch (error) {{
+            alert(
+                "Camera permission was not granted or your browser does not support camera access."
+            );
+        }}
+    }}
+
+    function stopCamera() {{
+        if (cameraStream) {{
+            cameraStream.getTracks().forEach(track => track.stop());
+            cameraStream = null;
+        }}
+
+        document.getElementById("cameraPreview")
+            .style.display = "none";
+
+        document.getElementById("recordButton")
+            .style.display = "none";
+    }}
+
+    function toggleRecording() {{
+        const button =
+            document.getElementById("recordButton");
+
+        if (recorder && recorder.state === "recording") {{
+            recorder.stop();
+            button.textContent = "🔴 Start recording";
+            return;
+        }}
+
+        if (!cameraStream) {{
+            alert("Start the camera first.");
+            return;
+        }}
+
+        recordedChunks = [];
+
+        let options = {{}};
+
+        if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")) {{
+            options.mimeType = "video/webm;codecs=vp9,opus";
+        }} else if (MediaRecorder.isTypeSupported("video/webm")) {{
+            options.mimeType = "video/webm";
+        }}
+
+        recorder = new MediaRecorder(
+            cameraStream,
+            options
+        );
+
+        recorder.ondataavailable = event => {{
+            if (event.data.size > 0) {{
+                recordedChunks.push(event.data);
+            }}
+        }};
+
+        recorder.onstop = () => {{
+            const blob = new Blob(
+                recordedChunks,
+                {{type: recorder.mimeType || "video/webm"}}
+            );
+
+            const file = new File(
+                [blob],
+                "heara-camera.webm",
+                {{type: blob.type}}
+            );
+
+            const dataTransfer = new DataTransfer();
+            dataTransfer.items.add(file);
+
+            mediaInput.files = dataTransfer.files;
+
+            const preview =
+                document.getElementById("recordedPreview");
+
+            preview.src = URL.createObjectURL(blob);
+            preview.style.display = "block";
+        }};
+
+        recorder.start();
+
+        button.textContent = "⏹ Stop recording";
+    }}
+
+    document.getElementById("mediaInput")
+        .addEventListener("change", event => {{
+            const file = event.target.files[0];
+
+            if (!file) return;
+
+            const preview =
+                document.getElementById("recordedPreview");
+
+            if (file.type.startsWith("video/")) {{
+                preview.src = URL.createObjectURL(file);
+                preview.style.display = "block";
+            }}
+        }});
+    </script>
+    """
+
+    return render_page("Create", content)
 
 
 # ============================================================
-# POST
+# POST DETAILS
 # ============================================================
 
 @app.route("/post/<int:post_id>")
-def post(post_id):
+def post_detail(post_id):
+    connection = db()
 
-    con = db()
-
-    p = con.execute("""
-        SELECT posts.*, users.username
+    post = connection.execute("""
+        SELECT
+            posts.*,
+            users.username,
+            users.display_name,
+            users.avatar_url
         FROM posts
-        JOIN users ON users.id=posts.user_id
-        WHERE posts.id=?
+        LEFT JOIN users ON users.id = posts.user_id
+        WHERE posts.id = ?
     """, (post_id,)).fetchone()
 
-    comments = con.execute("""
-        SELECT comments.*, users.username
+    if not post:
+        connection.close()
+        return "Post not found", 404
+
+    user = current_user()
+
+    comments = connection.execute("""
+        SELECT
+            comments.*,
+            users.username,
+            users.display_name
         FROM comments
-        JOIN users ON users.id=comments.user_id
-        WHERE post_id=?
-        ORDER BY comments.id DESC
+        JOIN users ON users.id = comments.user_id
+        WHERE comments.post_id = ?
+        ORDER BY comments.id ASC
     """, (post_id,)).fetchall()
 
-    con.close()
-
-    if not p:
-        abort(404)
-
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
-
-        <main class="page">
-
-            <article class="card">
-
-                <div class="post-head">
-                    <div class="avatar">
-                        {{ p['username'][0].upper() }}
-                    </div>
-
-                    <strong>@{{ p['username'] }}</strong>
-                </div>
-
-                {% if p['caption'] %}
-                <p style="margin-bottom:18px">
-                    {{ p['caption'] }}
-                </p>
-                {% endif %}
-
-                {% if p['media_type']=='video' and p['media_url'] %}
-                <video
-                    class="post-media"
-                    controls
-                    playsinline
-                    preload="metadata"
-                    src="{{ p['media_url'] }}">
-                </video>
-                {% endif %}
-
-                {% if p['media_type']=='image' and p['media_url'] %}
-                <img class="post-media" src="{{ p['media_url'] }}">
-                {% endif %}
-
-            </article>
-
-            {% if user %}
-
-            <div class="card">
-
-                <h3>Comment</h3>
-
-                <form method="post"
-                      action="{{ url_for('comment', post_id=p['id']) }}">
-
-                    <br>
-
-                    <input
-                        class="input"
-                        name="text"
-                        placeholder="Write a comment..."
-                        required
-                    >
-
-                    <br><br>
-
-                    <button class="btn">Comment</button>
-
-                </form>
-
-            </div>
-
-            {% endif %}
-
-            <div class="card">
-
-                <h2>Comments</h2>
-
-                <br>
-
-                {% for c in comments %}
-
-                <div class="comment">
-                    <strong>@{{ c['username'] }}</strong>
-                    <p style="margin-top:5px">{{ c['text'] }}</p>
-                </div>
-
-                {% else %}
-
-                <p class="muted">No comments yet.</p>
-
-                {% endfor %}
-
-            </div>
-
-        </main>
-
-        """),
-        title="Post",
-        user=current_user(),
-        p=p,
-        comments=comments
+    likes, comment_count, liked = post_counts(
+        connection,
+        post_id,
+        user["id"] if user else None
     )
 
+    connection.close()
+
+    media = ""
+
+    if post["media_type"] == "video":
+        media = f"""
+        <video
+            class="post-media"
+            src="{post["media_url"]}"
+            controls
+            playsinline>
+        </video>
+        """
+
+    elif post["media_type"] == "image":
+        media = f"""
+        <img
+            class="post-media"
+            src="{post["media_url"]}"
+            alt="Heara post">
+        """
+
+    comment_html = ""
+
+    for comment in comments:
+        name = comment["display_name"] or comment["username"]
+
+        comment_html += f"""
+        <div style="
+            padding:12px 0;
+            border-bottom:1px solid rgba(255,255,255,.06);
+        ">
+            <strong>@{name}</strong>
+            <div class="muted">{comment["comment"]}</div>
+        </div>
+        """
+
+    user_actions = ""
+
+    if user:
+        user_actions = f"""
+        <form method="POST" action="{url_for('comment', post_id=post_id)}">
+            <div style="display:flex;gap:8px;">
+                <input
+                    name="comment"
+                    placeholder="Write a comment..."
+                    required>
+                <button class="btn">Send</button>
+            </div>
+        </form>
+        """
+
+    content = f"""
+    <main class="container">
+        <div class="card" style="max-width:750px;margin:auto;">
+
+            <h2>
+                {post["display_name"] or post["username"] or "Heara creator"}
+            </h2>
+
+            {media}
+
+            <p>{post["caption"] or post["content"]}</p>
+
+            <div class="post-actions">
+
+                {
+                    f'''
+                    <form method="POST" action="{url_for("like", post_id=post_id)}">
+                        <button class="action-btn">
+                            {"❤️" if liked else "🤍"} {likes}
+                        </button>
+                    </form>
+                    '''
+                    if user else
+                    f"<span class='muted'>❤️ {likes}</span>"
+                }
+
+                <button
+                    class="action-btn"
+                    onclick="shareHeara(location.href)">
+                    ↗ Share
+                </button>
+            </div>
+
+            <hr style="border-color:rgba(255,255,255,.08);margin:25px 0;">
+
+            <h3>Comments · {comment_count}</h3>
+
+            {comment_html or "<p class='muted'>No comments yet.</p>"}
+
+            {user_actions}
+
+        </div>
+    </main>
+
+    <script>
+    async function shareHeara(url) {{
+        if (navigator.share) {{
+            try {{
+                await navigator.share({{
+                    title:"Heara",
+                    text:"Check this out on Heara",
+                    url:url
+                }});
+                return;
+            }} catch(e) {{}}
+        }}
+
+        try {{
+            await navigator.clipboard.writeText(url);
+            alert("Heara link copied!");
+        }} catch(e) {{
+            prompt("Copy this link:", url);
+        }}
+    }}
+    </script>
+    """
+
+    return render_page("Post", content)
+
+
+# ============================================================
+# LIKE
+# ============================================================
 
 @app.route("/like/<int:post_id>", methods=["POST"])
 @login_required
 def like(post_id):
+    user = current_user()
 
-    con = db()
+    connection = db()
 
-    exists = con.execute("""
-        SELECT id FROM likes
-        WHERE user_id=? AND post_id=?
-    """, (current_user()["id"], post_id)).fetchone()
+    existing = connection.execute("""
+        SELECT id
+        FROM likes
+        WHERE user_id = ? AND post_id = ?
+    """, (user["id"], post_id)).fetchone()
 
-    if exists:
-
-        con.execute("""
-            DELETE FROM likes
-            WHERE user_id=? AND post_id=?
-        """, (current_user()["id"], post_id))
-
-        con.execute("""
-            UPDATE posts
-            SET likes=MAX(likes-1,0)
-            WHERE id=?
-        """, (post_id,))
-
+    if existing:
+        connection.execute(
+            "DELETE FROM likes WHERE id = ?",
+            (existing["id"],)
+        )
     else:
+        connection.execute("""
+            INSERT OR IGNORE INTO likes(user_id, post_id)
+            VALUES (?, ?)
+        """, (user["id"], post_id))
 
-        con.execute("""
-            INSERT INTO likes(user_id,post_id)
-            VALUES(?,?)
-        """, (current_user()["id"], post_id))
+    connection.commit()
+    connection.close()
 
-        con.execute("""
-            UPDATE posts
-            SET likes=likes+1
-            WHERE id=?
-        """, (post_id,))
+    return redirect(
+        request.referrer or url_for("post_detail", post_id=post_id)
+    )
 
-    con.commit()
-    con.close()
 
-    return redirect(request.referrer or url_for("home"))
-
+# ============================================================
+# COMMENTS
+# ============================================================
 
 @app.route("/comment/<int:post_id>", methods=["POST"])
 @login_required
 def comment(post_id):
+    user = current_user()
 
-    text = request.form.get("text", "").strip()
+    text = request.form.get("comment", "").strip()
 
     if text:
+        connection = db()
 
-        con = db()
+        connection.execute("""
+            INSERT INTO comments(user_id, post_id, comment)
+            VALUES (?, ?, ?)
+        """, (user["id"], post_id, text))
 
-        con.execute("""
-            INSERT INTO comments(post_id,user_id,text)
-            VALUES(?,?,?)
-        """, (
-            post_id,
-            current_user()["id"],
-            text
-        ))
+        connection.commit()
+        connection.close()
 
-        con.commit()
-        con.close()
-
-    return redirect(request.referrer or url_for("post", post_id=post_id))
+    return redirect(
+        request.referrer or url_for("post_detail", post_id=post_id)
+    )
 
 
 # ============================================================
@@ -1314,187 +1950,203 @@ def comment(post_id):
 
 @app.route("/profile/<username>")
 def profile(username):
+    connection = db()
 
-    con = db()
-
-    u = con.execute(
-        "SELECT * FROM users WHERE username=?",
+    profile_user = connection.execute(
+        "SELECT * FROM users WHERE username = ?",
         (username,)
     ).fetchone()
 
-    if not u:
-        con.close()
-        abort(404)
+    if not profile_user:
+        connection.close()
+        return "User not found", 404
 
-    posts = con.execute("""
-        SELECT * FROM posts
-        WHERE user_id=?
+    posts = connection.execute("""
+        SELECT *
+        FROM posts
+        WHERE user_id = ?
         ORDER BY id DESC
-    """, (u["id"],)).fetchall()
-
-    con.close()
+    """, (profile_user["id"],)).fetchall()
 
     me = current_user()
 
-    following = False
+    is_following = False
 
     if me:
-        con = db()
-        following = con.execute("""
-            SELECT id FROM follows
-            WHERE follower_id=? AND following_id=?
-        """, (me["id"], u["id"])).fetchone()
-        con.close()
+        is_following = connection.execute("""
+            SELECT 1
+            FROM follows
+            WHERE follower_id = ?
+              AND following_id = ?
+        """, (me["id"], profile_user["id"])).fetchone() is not None
 
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
+    connection.close()
 
-        <main class="page">
+    media_cards = ""
 
-            <div class="card">
+    for post in posts:
+        media = ""
 
-                <div class="profile-cover"></div>
+        if post["media_type"] == "video":
+            media = f"""
+            <video
+                class="post-media"
+                src="{post["media_url"]}"
+                controls
+                playsinline>
+            </video>
+            """
 
-                <div class="profile-info">
+        elif post["media_type"] == "image":
+            media = f"""
+            <img class="post-media" src="{post["media_url"]}">
+            """
 
-                    <div class="profile-avatar">
-                        {{ u['username'][0].upper() }}
-                    </div>
+        media_cards += f"""
+        <article class="card">
+            {media}
+            <p>{post["caption"] or post["content"]}</p>
 
-                    <h1 style="margin-top:12px">
-                        @{{ u['username'] }}
+            <a class="btn secondary"
+               href="{url_for('post_detail', post_id=post["id"])}">
+                Open post
+            </a>
+        </article>
+        """
+
+    follow_button = ""
+
+    if me and me["id"] != profile_user["id"]:
+        follow_button = f"""
+        <form method="POST"
+              action="{url_for(
+                  "unfollow" if is_following else "follow",
+                  user_id=profile_user["id"]
+              )}">
+            <button class="btn">
+                {"Following ✓" if is_following else "Follow"}
+            </button>
+        </form>
+        """
+
+    content = f"""
+    <main class="container">
+
+        <section class="card">
+
+            <div style="
+                display:flex;
+                align-items:center;
+                gap:18px;
+                flex-wrap:wrap;
+            ">
+
+                <div
+                    style="
+                        width:90px;
+                        height:90px;
+                        border-radius:50%;
+                        background:linear-gradient(135deg,#7655ff,#2de3ff);
+                        display:flex;
+                        align-items:center;
+                        justify-content:center;
+                        font-size:32px;
+                        font-weight:900;
+                    ">
+                    {(profile_user["username"][:1] or "H").upper()}
+                </div>
+
+                <div style="flex:1;">
+                    <h1 style="margin:0;">
+                        {profile_user["display_name"] or profile_user["username"]}
                     </h1>
 
                     <p class="muted">
-                        {{ u['bio'] or 'Welcome to my Heara profile.' }}
+                        @{profile_user["username"]}
                     </p>
 
-                    <p style="margin-top:12px">
-                        <strong>{{ u['followers'] }}</strong> followers
-                        &nbsp;&nbsp;
-                        <strong>{{ u['following'] }}</strong> following
+                    <p>{profile_user["bio"]}</p>
+
+                    <p class="muted">
+                        {profile_user["followers"]} followers
+                        · {profile_user["following"]} following
                     </p>
-
-                    {% if me and me['id'] != u['id'] %}
-
-                    <br>
-
-                    {% if following %}
-
-                    <form method="post"
-                          action="{{ url_for('unfollow', user_id=u['id']) }}">
-                        <button class="btn secondary">
-                            Following ✓
-                        </button>
-                    </form>
-
-                    {% else %}
-
-                    <form method="post"
-                          action="{{ url_for('follow', user_id=u['id']) }}">
-                        <button class="btn">
-                            Follow
-                        </button>
-                    </form>
-
-                    {% endif %}
-
-                    {% endif %}
-
                 </div>
 
+                {follow_button}
+
             </div>
+        </section>
 
-            <h2 style="margin:25px 0 15px">Posts</h2>
+        <h2>Posts</h2>
 
-            {% for p in posts %}
+        <section class="grid">
+            {media_cards or "<div class='card'><p class='muted'>No posts yet.</p></div>"}
+        </section>
 
-            <article class="card">
+    </main>
+    """
 
-                {% if p['caption'] %}
-                <p style="margin-bottom:15px">
-                    {{ p['caption'] }}
-                </p>
-                {% endif %}
-
-                {% if p['media_type']=='video' and p['media_url'] %}
-
-                <video
-                    class="post-media"
-                    controls
-                    playsinline
-                    preload="metadata"
-                    src="{{ p['media_url'] }}">
-                </video>
-
-                {% elif p['media_type']=='image' and p['media_url'] %}
-
-                <img class="post-media" src="{{ p['media_url'] }}">
-
-                {% endif %}
-
-            </article>
-
-            {% else %}
-
-            <div class="card">
-                <p class="muted">No posts yet.</p>
-            </div>
-
-            {% endfor %}
-
-        </main>
-
-        """),
-        title=username,
-        user=me,
-        u=u,
-        posts=posts,
-        following=following
+    return render_page(
+        "@" + profile_user["username"],
+        content
     )
 
+
+# ============================================================
+# FOLLOW
+# ============================================================
 
 @app.route("/follow/<int:user_id>", methods=["POST"])
 @login_required
 def follow(user_id):
-
     me = current_user()
 
     if me["id"] == user_id:
         return redirect(request.referrer or url_for("home"))
 
-    con = db()
+    connection = db()
 
-    try:
-        con.execute("""
-            INSERT INTO follows(follower_id,following_id)
-            VALUES(?,?)
+    existing = connection.execute("""
+        SELECT id FROM follows
+        WHERE follower_id = ?
+          AND following_id = ?
+    """, (me["id"], user_id)).fetchone()
+
+    if not existing:
+        connection.execute("""
+            INSERT INTO follows(follower_id, following_id)
+            VALUES (?, ?)
         """, (me["id"], user_id))
 
-        con.execute("""
-            UPDATE users SET followers=followers+1
-            WHERE id=?
+        connection.execute("""
+            UPDATE users
+            SET followers = followers + 1
+            WHERE id = ?
         """, (user_id,))
 
-        con.execute("""
-            UPDATE users SET following=following+1
-            WHERE id=?
+        connection.execute("""
+            UPDATE users
+            SET following = following + 1
+            WHERE id = ?
         """, (me["id"],))
 
-        con.execute("""
-            INSERT INTO notifications(user_id,text)
-            VALUES(?,?)
+        connection.execute("""
+            INSERT INTO notifications(
+                user_id,
+                actor_id,
+                notification_type,
+                text
+            )
+            VALUES (?, ?, 'follow', ?)
         """, (
             user_id,
-            "@" + me["username"] + " started following you."
+            me["id"],
+            f"@{me['username']} followed you."
         ))
 
-        con.commit()
-
-    except sqlite3.IntegrityError:
-        pass
-
-    con.close()
+    connection.commit()
+    connection.close()
 
     return redirect(request.referrer or url_for("home"))
 
@@ -1502,362 +2154,208 @@ def follow(user_id):
 @app.route("/unfollow/<int:user_id>", methods=["POST"])
 @login_required
 def unfollow(user_id):
-
     me = current_user()
 
-    con = db()
+    connection = db()
 
-    deleted = con.execute("""
-        DELETE FROM follows
-        WHERE follower_id=? AND following_id=?
-    """, (me["id"], user_id))
+    existing = connection.execute("""
+        SELECT id FROM follows
+        WHERE follower_id = ?
+          AND following_id = ?
+    """, (me["id"], user_id)).fetchone()
 
-    if deleted.rowcount:
+    if existing:
+        connection.execute(
+            "DELETE FROM follows WHERE id = ?",
+            (existing["id"],)
+        )
 
-        con.execute("""
-            UPDATE users SET followers=MAX(followers-1,0)
-            WHERE id=?
+        connection.execute("""
+            UPDATE users
+            SET followers = MAX(followers - 1, 0)
+            WHERE id = ?
         """, (user_id,))
 
-        con.execute("""
-            UPDATE users SET following=MAX(following-1,0)
-            WHERE id=?
+        connection.execute("""
+            UPDATE users
+            SET following = MAX(following - 1, 0)
+            WHERE id = ?
         """, (me["id"],))
 
-    con.commit()
-    con.close()
+    connection.commit()
+    connection.close()
 
     return redirect(request.referrer or url_for("home"))
 
 
 # ============================================================
-# LIVE
+# AUTH
 # ============================================================
 
-@app.route("/live")
-def live():
-
-    con = db()
-
-    rooms = con.execute("""
-        SELECT live_rooms.*, users.username
-        FROM live_rooms
-        JOIN users ON users.id=live_rooms.user_id
-        WHERE active=1
-        ORDER BY live_rooms.id DESC
-    """).fetchall()
-
-    con.close()
-
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
-
-        <main class="page">
-
-            <div class="card">
-                <h1>🔴 Heara Live</h1>
-                <p class="muted" style="margin-top:8px">
-                    Watch creators who are live right now.
-                </p>
-
-                {% if user %}
-                <br>
-                <a class="btn" href="{{ url_for('go_live') }}">
-                    Go Live
-                </a>
-                {% endif %}
-            </div>
-
-            {% for room in rooms %}
-
-            <div class="card">
-
-                <h2>@{{ room['username'] }}</h2>
-
-                <p class="muted">
-                    {{ room['title'] }}
-                </p>
-
-                <br>
-
-                <a class="btn"
-                   href="{{ url_for('live_room', room_code=room['room_code']) }}">
-                    Watch Live
-                </a>
-
-            </div>
-
-            {% else %}
-
-            <div class="live-box">
-                <h1>No one is live right now.</h1>
-                <p class="muted" style="margin:12px">
-                    Be the first creator to go live.
-                </p>
-            </div>
-
-            {% endfor %}
-
-        </main>
-
-        """),
-        title="Live",
-        user=current_user(),
-        rooms=rooms
-    )
-
-
-@app.route("/go-live", methods=["GET", "POST"])
-@login_required
-def go_live():
-
-    user = current_user()
-
-    if user["followers"] < LIVE_FOLLOWERS:
-
-        return render_template_string(
-            PAGE.replace("{% block content %}{% endblock %}", """
-
-            <main class="page">
-
-                <div class="card" style="max-width:650px;margin:auto;text-align:center">
-
-                    <h1>🔒 Go Live</h1>
-
-                    <p style="margin:20px 0">
-                        You need <strong>{{ required }}</strong>
-                        followers to go live.
-                    </p>
-
-                    <p class="muted">
-                        Your current followers:
-                        <strong>{{ followers }}</strong>
-                    </p>
-
-                    <br>
-
-                    <a class="btn" href="{{ url_for('profile', username=user['username']) }}">
-                        Back to profile
-                    </a>
-
-                </div>
-
-            </main>
-
-            """),
-            title="Go Live",
-            user=user,
-            required=LIVE_FOLLOWERS,
-            followers=user["followers"]
-        )
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    error = ""
 
     if request.method == "POST":
+        username = request.form.get("username", "").strip().lower()
+        password = request.form.get("password", "").strip()
+        display_name = request.form.get("display_name", "").strip()
 
-        title = request.form.get("title", "Heara Live").strip()
+        if len(username) < 3:
+            error = "Username must be at least 3 characters."
 
-        code = secrets.token_urlsafe(10)
+        elif len(password) < 4:
+            error = "Password must be at least 4 characters."
 
-        con = db()
+        else:
+            connection = db()
 
-        con.execute("""
-            INSERT INTO live_rooms(room_code,user_id,title,active)
-            VALUES(?,?,?,1)
-        """, (
-            code,
-            user["id"],
-            title or "Heara Live"
-        ))
+            try:
+                cursor = connection.execute("""
+                    INSERT INTO users(
+                        username,
+                        password,
+                        display_name
+                    )
+                    VALUES (?, ?, ?)
+                """, (
+                    username,
+                    hash_password(password),
+                    display_name or username
+                ))
 
-        con.commit()
-        con.close()
+                connection.commit()
 
-        return redirect(url_for("live_room", room_code=code))
+                session["user_id"] = cursor.lastrowid
 
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
+                connection.close()
 
-        <main class="page">
+                return redirect(url_for("home"))
 
-            <div class="card" style="max-width:650px;margin:auto">
+            except sqlite3.IntegrityError:
+                connection.close()
+                error = "That username already exists."
 
-                <h1>🔴 Go Live</h1>
+    content = f"""
+    <main class="container">
+        <div class="card" style="max-width:500px;margin:auto;">
+            <h1>Join Heara</h1>
 
-                <p class="muted" style="margin:10px 0 25px">
-                    You're eligible to go live.
-                </p>
+            {"<div class='error'>" + error + "</div>" if error else ""}
 
-                <form method="post">
+            <form method="POST">
 
+                <div class="form-group">
                     <input
-                        class="input"
-                        name="title"
-                        placeholder="Live title"
-                        value="Heara Live"
-                        required
-                    >
-
-                    <br><br>
-
-                    <button class="btn">
-                        Start Live
-                    </button>
-
-                </form>
-
-            </div>
-
-        </main>
-
-        """),
-        title="Go Live",
-        user=user
-    )
-
-
-@app.route("/live/<room_code>")
-def live_room(room_code):
-
-    con = db()
-
-    room = con.execute("""
-        SELECT live_rooms.*, users.username
-        FROM live_rooms
-        JOIN users ON users.id=live_rooms.user_id
-        WHERE room_code=? AND active=1
-    """, (room_code,)).fetchone()
-
-    con.close()
-
-    if not room:
-        return redirect(url_for("live"))
-
-    user = current_user()
-
-    is_owner = bool(
-        user and user["id"] == room["user_id"]
-    )
-
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
-
-        <main class="page">
-
-            <div class="live-box">
-
-                <video
-                    id="camera"
-                    class="live-video"
-                    autoplay
-                    muted
-                    playsinline
-                    style="display:{{ 'block' if is_owner else 'none' }}">
-                </video>
-
-                {% if not is_owner %}
-
-                <div>
-                    <h1>🔴 {{ room['title'] }}</h1>
-
-                    <p class="muted" style="margin-top:10px">
-                        @{{ room['username'] }} is live.
-                    </p>
-
-                    <br>
-
-                    <p>
-                        Live room connected.
-                    </p>
+                        name="display_name"
+                        placeholder="Display name">
                 </div>
 
-                {% endif %}
+                <div class="form-group">
+                    <input
+                        name="username"
+                        placeholder="Username"
+                        required>
+                </div>
 
-            </div>
+                <div class="form-group">
+                    <input
+                        type="password"
+                        name="password"
+                        placeholder="Password"
+                        required>
+                </div>
 
-            {% if is_owner %}
-
-            <div class="card" style="text-align:center">
-
-                <h2>You are live 🔴</h2>
-
-                <p class="muted" style="margin:10px">
-                    Allow camera and microphone access when your browser asks.
-                </p>
-
-                <br>
-
-                <button class="btn" onclick="startCamera()">
-                    Enable Camera & Mic
+                <button class="btn">
+                    Create account
                 </button>
 
-                <form method="post"
-                      action="{{ url_for('end_live', room_code=room['room_code']) }}"
-                      style="display:inline">
+            </form>
 
-                    <button class="btn secondary">
-                        End Live
-                    </button>
+            <p class="muted">
+                Already have an account?
+                <a href="{url_for('login')}">Log in</a>
+            </p>
+        </div>
+    </main>
+    """
 
-                </form>
-
-            </div>
-
-            <script>
-
-            async function startCamera() {
-
-                const video = document.getElementById("camera");
-
-                try {
-
-                    const stream =
-                        await navigator.mediaDevices.getUserMedia({
-                            video:true,
-                            audio:true
-                        });
-
-                    video.srcObject = stream;
-
-                } catch(error) {
-
-                    alert(
-                        "Camera or microphone permission was denied. " +
-                        "Please allow camera and microphone access in your browser."
-                    );
-
-                }
-
-            }
-
-            </script>
-
-            {% endif %}
-
-        </main>
-
-        """),
-        title="Live",
-        user=user,
-        room=room,
-        is_owner=is_owner
-    )
+    return render_page("Register", content)
 
 
-@app.route("/live/<room_code>/end", methods=["POST"])
-@login_required
-def end_live(room_code):
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = ""
 
-    con = db()
+    if request.method == "POST":
+        username = request.form.get("username", "").strip().lower()
+        password = request.form.get("password", "").strip()
 
-    con.execute("""
-        UPDATE live_rooms
-        SET active=0
-        WHERE room_code=? AND user_id=?
-    """, (room_code, current_user()["id"]))
+        connection = db()
 
-    con.commit()
-    con.close()
+        user = connection.execute("""
+            SELECT *
+            FROM users
+            WHERE username = ?
+              AND password = ?
+        """, (
+            username,
+            hash_password(password)
+        )).fetchone()
 
-    return redirect(url_for("live"))
+        connection.close()
+
+        if user:
+            session["user_id"] = user["id"]
+            return redirect(url_for("home"))
+
+        error = "Incorrect username or password."
+
+    content = f"""
+    <main class="container">
+        <div class="card" style="max-width:500px;margin:auto;">
+            <h1>Log in</h1>
+
+            {"<div class='error'>" + error + "</div>" if error else ""}
+
+            <form method="POST">
+
+                <div class="form-group">
+                    <input
+                        name="username"
+                        placeholder="Username"
+                        required>
+                </div>
+
+                <div class="form-group">
+                    <input
+                        type="password"
+                        name="password"
+                        placeholder="Password"
+                        required>
+                </div>
+
+                <button class="btn">
+                    Log in
+                </button>
+
+            </form>
+
+            <p class="muted">
+                New to Heara?
+                <a href="{url_for('register')}">Create an account</a>
+            </p>
+        </div>
+    </main>
+    """
+
+    return render_page("Login", content)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("home"))
 
 
 # ============================================================
@@ -1867,177 +2365,180 @@ def end_live(room_code):
 @app.route("/inbox")
 @login_required
 def inbox():
-
     me = current_user()
 
-    con = db()
+    connection = db()
 
-    users = con.execute("""
-        SELECT DISTINCT users.*
+    people = connection.execute("""
+        SELECT DISTINCT
+            users.id,
+            users.username,
+            users.display_name
         FROM users
         JOIN messages
-        ON users.id=messages.sender_id
-        OR users.id=messages.receiver_id
+        ON (
+            users.id = messages.sender_id
+            OR users.id = messages.receiver_id
+        )
         WHERE users.id != ?
         ORDER BY messages.id DESC
     """, (me["id"],)).fetchall()
 
-    con.close()
+    connection.close()
 
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
+    rows = ""
 
-        <main class="page">
-
-            <div class="card">
-
-                <h1>✉ Inbox</h1>
-
-                <br>
-
-                {% for u in users %}
-
-                <a href="{{ url_for('messages', user_id=u['id']) }}"
-                   style="display:block;padding:18px;border-bottom:1px solid #28223a">
-
-                    <strong>@{{ u['username'] }}</strong>
-
-                    <p class="muted">
-                        Open conversation →
-                    </p>
-
-                </a>
-
-                {% else %}
-
-                <p class="muted">
-                    No conversations yet.
-                </p>
-
-                {% endfor %}
-
+    for person in people:
+        rows += f"""
+        <a
+            href="{url_for('messages', user_id=person["id"])}"
+            class="card"
+            style="display:block;">
+            <strong>
+                {person["display_name"] or person["username"]}
+            </strong>
+            <div class="muted">
+                @{person["username"]}
             </div>
+        </a>
+        """
 
-        </main>
+    content = f"""
+    <main class="container">
+        <h1>Messages</h1>
 
-        """),
-        title="Inbox",
-        user=me,
-        users=users
-    )
+        <div class="grid">
+            {rows or "<div class='card'><p class='muted'>No conversations yet.</p></div>"}
+        </div>
+    </main>
+    """
+
+    return render_page("Messages", content)
 
 
 @app.route("/messages/<int:user_id>", methods=["GET", "POST"])
 @login_required
 def messages(user_id):
-
     me = current_user()
 
-    con = db()
+    connection = db()
 
-    other = con.execute(
-        "SELECT * FROM users WHERE id=?",
+    person = connection.execute(
+        "SELECT * FROM users WHERE id = ?",
         (user_id,)
     ).fetchone()
 
-    if not other:
-        con.close()
-        abort(404)
+    if not person:
+        connection.close()
+        return "User not found", 404
 
     if request.method == "POST":
+        message = request.form.get("message", "").strip()
 
-        text = request.form.get("text", "").strip()
-
-        if text:
-
-            con.execute("""
-                INSERT INTO messages(sender_id,receiver_id,text)
-                VALUES(?,?,?)
+        if message:
+            connection.execute("""
+                INSERT INTO messages(
+                    sender_id,
+                    receiver_id,
+                    message
+                )
+                VALUES (?, ?, ?)
             """, (
                 me["id"],
                 user_id,
-                text
+                message
             ))
 
-            con.execute("""
-                INSERT INTO notifications(user_id,text)
-                VALUES(?,?)
+            connection.execute("""
+                INSERT INTO notifications(
+                    user_id,
+                    actor_id,
+                    notification_type,
+                    text
+                )
+                VALUES (?, ?, 'message', ?)
             """, (
                 user_id,
-                "New message from @" + me["username"]
+                me["id"],
+                f"@{me['username']} sent you a message."
             ))
 
-            con.commit()
+            connection.commit()
 
-    messages_list = con.execute("""
-        SELECT messages.*, users.username
+    messages_list = connection.execute("""
+        SELECT *
         FROM messages
-        JOIN users ON users.id=messages.sender_id
         WHERE
-        (sender_id=? AND receiver_id=?)
-        OR
-        (sender_id=? AND receiver_id=?)
-        ORDER BY messages.id ASC
+            (sender_id = ? AND receiver_id = ?)
+            OR
+            (sender_id = ? AND receiver_id = ?)
+        ORDER BY id ASC
     """, (
-        me["id"], user_id,
-        user_id, me["id"]
+        me["id"],
+        user_id,
+        user_id,
+        me["id"]
     )).fetchall()
 
-    con.close()
+    connection.close()
 
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
+    message_html = ""
 
-        <main class="page">
+    for item in messages_list:
+        mine = item["sender_id"] == me["id"]
 
-            <div class="card">
+        message_html += f"""
+        <div style="
+            display:flex;
+            justify-content:{'flex-end' if mine else 'flex-start'};
+            margin:8px 0;
+        ">
+            <div style="
+                max-width:75%;
+                padding:11px 14px;
+                border-radius:16px;
+                background:{'linear-gradient(135deg,#7355ff,#3f9cff)' if mine else 'rgba(255,255,255,.08)'};
+            ">
+                {item["message"]}
+            </div>
+        </div>
+        """
 
-                <h1>Chat with @{{ other['username'] }}</h1>
+    content = f"""
+    <main class="container">
 
-                <div style="margin-top:25px">
+        <div class="card" style="max-width:700px;margin:auto;">
 
-                    {% for m in messages_list %}
+            <h2>
+                {person["display_name"] or person["username"]}
+            </h2>
 
-                    <div style="
-                        padding:12px;
-                        margin:8px 0;
-                        border-radius:15px;
-                        background:{{ '#47257a' if m['sender_id']==user['id'] else '#211d34' }};
-                        max-width:75%;
-                        margin-left:{{ 'auto' if m['sender_id']==user['id'] else '0' }};
-                    ">
-
-                        {{ m['text'] }}
-
-                    </div>
-
-                    {% endfor %}
-
-                </div>
-
-                <form method="post" style="display:flex;gap:10px;margin-top:20px">
-
-                    <input
-                        class="input"
-                        name="text"
-                        placeholder="Write a message..."
-                        required
-                    >
-
-                    <button class="btn">Send</button>
-
-                </form>
-
+            <div style="
+                height:450px;
+                overflow-y:auto;
+                padding:10px;
+                background:rgba(0,0,0,.15);
+                border-radius:15px;
+            ">
+                {message_html or "<p class='muted'>Start the conversation.</p>"}
             </div>
 
-        </main>
+            <form method="POST" style="margin-top:12px;">
+                <div style="display:flex;gap:8px;">
+                    <input
+                        name="message"
+                        placeholder="Type a message..."
+                        required>
+                    <button class="btn">Send</button>
+                </div>
+            </form>
 
-        """),
-        title="Messages",
-        user=me,
-        other=other,
-        messages_list=messages_list
-    )
+        </div>
+
+    </main>
+    """
+
+    return render_page("Chat", content)
 
 
 # ============================================================
@@ -2047,62 +2548,59 @@ def messages(user_id):
 @app.route("/notifications")
 @login_required
 def notifications():
+    user = current_user()
 
-    con = db()
+    connection = db()
 
-    notes = con.execute("""
-        SELECT * FROM notifications
-        WHERE user_id=?
-        ORDER BY id DESC
-        LIMIT 50
-    """, (current_user()["id"],)).fetchall()
+    rows = connection.execute("""
+        SELECT
+            notifications.*,
+            users.username,
+            users.display_name
+        FROM notifications
+        LEFT JOIN users
+        ON users.id = notifications.actor_id
+        WHERE notifications.user_id = ?
+        ORDER BY notifications.id DESC
+        LIMIT 100
+    """, (user["id"],)).fetchall()
 
-    con.execute("""
+    connection.execute("""
         UPDATE notifications
-        SET seen=1
-        WHERE user_id=?
-    """, (current_user()["id"],))
+        SET is_read = 1
+        WHERE user_id = ?
+    """, (user["id"],))
 
-    con.commit()
-    con.close()
+    connection.commit()
+    connection.close()
 
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
+    html = ""
 
-        <main class="page">
+    for row in rows:
+        html += f"""
+        <div class="card">
+            {row["text"] or "You have a new notification."}
+        </div>
+        """
 
-            <div class="card">
+    content = f"""
+    <main class="container">
 
-                <h1>🔔 Notifications</h1>
+        <h1>Notifications</h1>
 
-                <br>
+        <div style="
+            display:grid;
+            gap:10px;
+            max-width:700px;
+            margin:auto;
+        ">
+            {html or "<div class='card'><p class='muted'>No notifications yet.</p></div>"}
+        </div>
 
-                {% for n in notes %}
+    </main>
+    """
 
-                <div style="
-                    padding:16px;
-                    border-bottom:1px solid #28223a
-                ">
-                    {{ n['text'] }}
-                </div>
-
-                {% else %}
-
-                <p class="muted">
-                    Nothing new.
-                </p>
-
-                {% endfor %}
-
-            </div>
-
-        </main>
-
-        """),
-        title="Notifications",
-        user=current_user(),
-        notes=notes
-    )
+    return render_page("Notifications", content)
 
 
 # ============================================================
@@ -2111,337 +2609,463 @@ def notifications():
 
 @app.route("/search")
 def search():
-
-    q = request.args.get("q", "").strip()
-
-    con = db()
+    query = request.args.get("q", "").strip()
 
     users = []
 
-    if q:
-        users = con.execute("""
-            SELECT * FROM users
+    if query:
+        connection = db()
+
+        users = connection.execute("""
+            SELECT *
+            FROM users
             WHERE username LIKE ?
+               OR display_name LIKE ?
+            ORDER BY followers DESC
             LIMIT 30
-        """, ("%" + q + "%",)).fetchall()
+        """, (
+            "%" + query + "%",
+            "%" + query + "%"
+        )).fetchall()
 
-    con.close()
+        connection.close()
 
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
+    results = ""
 
-        <main class="page">
+    for user in users:
+        results += f"""
+        <a
+            class="card"
+            href="{url_for('profile', username=user["username"])}">
+            <strong>
+                {user["display_name"] or user["username"]}
+            </strong>
+            <div class="muted">
+                @{user["username"]}
+            </div>
+        </a>
+        """
 
-            <div class="card">
+    content = f"""
+    <main class="container">
 
-                <h1>Search Heara</h1>
+        <div class="card">
+            <h1>Search Heara</h1>
 
-                <form style="margin-top:20px">
-
+            <form method="GET">
+                <div style="display:flex;gap:8px;">
                     <input
-                        class="input"
                         name="q"
-                        value="{{ q }}"
-                        placeholder="Search usernames..."
-                    >
-
-                    <br><br>
-
+                        value="{query}"
+                        placeholder="Search creators..."
+                        required>
                     <button class="btn">Search</button>
+                </div>
+            </form>
+        </div>
 
-                </form>
+        <div class="grid" style="margin-top:20px;">
+            {results or "<div class='card'><p class='muted'>Search for a creator.</p></div>"}
+        </div>
 
-            </div>
+    </main>
+    """
 
-            {% for u in users %}
-
-            <div class="card">
-
-                <h2>@{{ u['username'] }}</h2>
-
-                <p class="muted">{{ u['followers'] }} followers</p>
-
-                <br>
-
-                <a class="btn"
-                   href="{{ url_for('profile', username=u['username']) }}">
-                    View profile
-                </a>
-
-            </div>
-
-            {% endfor %}
-
-        </main>
-
-        """),
-        title="Search",
-        user=current_user(),
-        users=users,
-        q=q
-    )
+    return render_page("Search", content)
 
 
 # ============================================================
-# CREATOR
+# LIVE
 # ============================================================
 
-@app.route("/creator")
+@app.route("/live")
+def live():
+    connection = db()
+
+    rooms = connection.execute("""
+        SELECT
+            live_rooms.*,
+            users.username,
+            users.display_name,
+            users.followers
+        FROM live_rooms
+        JOIN users
+        ON users.id = live_rooms.owner_id
+        WHERE live_rooms.is_live = 1
+        ORDER BY live_rooms.id DESC
+    """).fetchall()
+
+    connection.close()
+
+    cards = ""
+
+    for room in rooms:
+        cards += f"""
+        <a
+            class="card"
+            href="{url_for(
+                'live_room',
+                room_code=room["room_code"]
+            )}">
+            <div style="font-size:30px;">🔴</div>
+            <h3>
+                {room["title"]}
+            </h3>
+            <p class="muted">
+                @{room["username"]}
+            </p>
+            <span class="btn">
+                Watch Live
+            </span>
+        </a>
+        """
+
+    content = f"""
+    <main class="container">
+
+        <div class="card">
+            <h1>🔴 Heara Live</h1>
+
+            <p class="muted">
+                Creators with at least {LIVE_FOLLOWERS} followers
+                can start a live broadcast.
+            </p>
+
+            {
+                f"<a class='btn' href='{url_for('go_live')}'>Go Live</a>"
+                if current_user()
+                else
+                f"<a class='btn' href='{url_for('login')}'>Log in to go live</a>"
+            }
+        </div>
+
+        <h2>Live now</h2>
+
+        <div class="grid">
+            {cards or "<div class='card'><p class='muted'>Nobody is live right now.</p></div>"}
+        </div>
+
+    </main>
+    """
+
+    return render_page("Live", content)
+
+
+@app.route("/go-live", methods=["GET", "POST"])
 @login_required
-def creator():
+def go_live():
+    user = current_user()
+
+    if user["followers"] < LIVE_FOLLOWERS:
+        content = f"""
+        <main class="container">
+            <div class="card" style="max-width:650px;margin:auto;text-align:center;">
+                <h1>🔒 Live isn't unlocked yet</h1>
+                <p>
+                    You need at least
+                    <strong>{LIVE_FOLLOWERS} followers</strong>
+                    to go live.
+                </p>
+                <p class="muted">
+                    Keep creating and growing your Heara community.
+                </p>
+            </div>
+        </main>
+        """
+
+        return render_page("Live", content)
+
+    if request.method == "POST":
+        title = request.form.get(
+            "title",
+            "Live on Heara"
+        ).strip()
+
+        room_code = make_room_code()
+
+        connection = db()
+
+        connection.execute("""
+            INSERT INTO live_rooms(
+                owner_id,
+                room_code,
+                title,
+                is_live
+            )
+            VALUES (?, ?, ?, 1)
+        """, (
+            user["id"],
+            room_code,
+            title or "Live on Heara"
+        ))
+
+        connection.commit()
+        connection.close()
+
+        return redirect(
+            url_for("live_room", room_code=room_code)
+        )
+
+    content = f"""
+    <main class="container">
+
+        <div class="card" style="max-width:650px;margin:auto;">
+
+            <h1>Go Live 🔴</h1>
+
+            <p class="muted">
+                Your camera and microphone will be requested
+                by the browser.
+            </p>
+
+            <form method="POST">
+
+                <div class="form-group">
+                    <input
+                        name="title"
+                        value="Live on Heara"
+                        placeholder="Live title">
+                </div>
+
+                <button class="btn">
+                    Start Live
+                </button>
+
+            </form>
+
+        </div>
+
+    </main>
+    """
+
+    return render_page("Go Live", content)
+
+
+@app.route("/live/<room_code>")
+def live_room(room_code):
+    connection = db()
+
+    room = connection.execute("""
+        SELECT
+            live_rooms.*,
+            users.username,
+            users.display_name,
+            users.followers
+        FROM live_rooms
+        JOIN users
+        ON users.id = live_rooms.owner_id
+        WHERE room_code = ?
+    """, (room_code,)).fetchone()
+
+    connection.close()
+
+    if not room:
+        return "Live room not found", 404
 
     user = current_user()
 
-    con = db()
+    owner = (
+        user is not None
+        and user["id"] == room["owner_id"]
+    )
 
-    posts = con.execute("""
-        SELECT COUNT(*) AS total
-        FROM posts
-        WHERE user_id=?
-    """, (user["id"],)).fetchone()["total"]
+    content = f"""
+    <main class="container">
 
-    likes = con.execute("""
-        SELECT COALESCE(SUM(likes),0) AS total
-        FROM posts
-        WHERE user_id=?
-    """, (user["id"],)).fetchone()["total"]
+        <div class="card">
 
-    views = con.execute("""
-        SELECT COALESCE(SUM(views),0) AS total
-        FROM posts
-        WHERE user_id=?
-    """, (user["id"],)).fetchone()["total"]
+            <h1>
+                🔴 {room["title"]}
+            </h1>
 
-    con.close()
-
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
-
-        <main class="page">
-
-            <h1>Creator Studio</h1>
-
-            <p class="muted" style="margin:8px 0 25px">
-                Your Heara creator dashboard.
+            <p class="muted">
+                @{room["username"]}
             </p>
 
-            <div class="grid">
+            <div style="
+                position:relative;
+                background:#000;
+                border-radius:20px;
+                overflow:hidden;
+                min-height:450px;
+                display:flex;
+                align-items:center;
+                justify-content:center;
+            ">
 
-                <div class="card">
-                    <h2>{{ posts }}</h2>
-                    <p class="muted">Posts</p>
-                </div>
+                <video
+                    id="livePreview"
+                    autoplay
+                    playsinline
+                    muted
+                    style="
+                        width:100%;
+                        max-height:650px;
+                        object-fit:cover;
+                    ">
+                </video>
 
-                <div class="card">
-                    <h2>{{ likes }}</h2>
-                    <p class="muted">Likes</p>
-                </div>
-
-                <div class="card">
-                    <h2>{{ views }}</h2>
-                    <p class="muted">Views</p>
-                </div>
-
-                <div class="card">
-                    <h2>₦0</h2>
-                    <p class="muted">Creator earnings</p>
+                <div
+                    id="viewerMessage"
+                    style="
+                        position:absolute;
+                        inset:0;
+                        display:flex;
+                        align-items:center;
+                        justify-content:center;
+                        text-align:center;
+                        padding:30px;
+                    ">
+                    {
+                        "Starting camera..."
+                        if owner
+                        else
+                        "🔴 This live room is active.<br><br>"
+                        "The broadcaster's camera stream requires "
+                        "a real-time streaming server/WebRTC media layer "
+                        "for internet-wide viewers."
+                    }
                 </div>
 
             </div>
 
-            <div class="card">
+            {
+                f'''
+                <div style="display:flex;gap:10px;margin-top:15px;">
+                    <button class="btn" onclick="startLiveCamera()">
+                        🎥 Start camera
+                    </button>
 
-                <h2>Go Live</h2>
+                    <form method="POST"
+                          action="{url_for('end_live', room_code=room_code)}">
+                        <button class="btn danger">
+                            End Live
+                        </button>
+                    </form>
+                </div>
+                '''
+                if owner else
+                ""
+            }
 
-                <p class="muted" style="margin:10px 0 20px">
-                    Live access requires {{ required }} followers.
-                </p>
+        </div>
 
-                <a class="btn" href="{{ url_for('go_live') }}">
-                    Check Live Access
-                </a>
+    </main>
 
-            </div>
+    <script>
+    async function startLiveCamera() {{
+        try {{
+            const stream =
+                await navigator.mediaDevices.getUserMedia({{
+                    video:true,
+                    audio:true
+                }});
 
-        </main>
+            const video =
+                document.getElementById("livePreview");
 
-        """),
-        title="Creator Studio",
-        user=user,
-        posts=posts,
-        likes=likes,
-        views=views,
-        required=LIVE_FOLLOWERS
-    )
+            video.srcObject = stream;
+
+            document.getElementById("viewerMessage")
+                .style.display = "none";
+
+        }} catch(error) {{
+            alert(
+                "Camera/microphone permission was not granted."
+            );
+        }}
+    }}
+    </script>
+    """
+
+    return render_page("Live", content)
+
+
+@app.route("/live/<room_code>/end", methods=["POST"])
+@login_required
+def end_live(room_code):
+    user = current_user()
+
+    connection = db()
+
+    connection.execute("""
+        UPDATE live_rooms
+        SET is_live = 0,
+            ended_at = CURRENT_TIMESTAMP
+        WHERE room_code = ?
+          AND owner_id = ?
+    """, (
+        room_code,
+        user["id"]
+    ))
+
+    connection.commit()
+    connection.close()
+
+    return redirect(url_for("live"))
 
 
 # ============================================================
-# AUTH PAGES
+# PEXELS SHARE ROUTE
 # ============================================================
 
-@app.route("/register", methods=["GET", "POST"])
-def register():
+@app.route("/pexels/<int:video_id>")
+def pexels_shared(video_id):
+    """
+    Shareable Heara landing page for a Pexels video.
+    """
 
-    if request.method == "POST":
-
-        username = request.form.get("username", "").strip().lower()
-        password = request.form.get("password", "")
-
-        if len(username) < 3 or len(password) < 4:
-            return "Username must be at least 3 characters and password 4 characters."
-
-        con = db()
-
-        try:
-
-            cur = con.execute("""
-                INSERT INTO users(username,password)
-                VALUES(?,?)
-            """, (username, password))
-
-            con.commit()
-
-            session["user_id"] = cur.lastrowid
-
-            con.close()
-
-            return redirect(url_for("home"))
-
-        except sqlite3.IntegrityError:
-
-            con.close()
-
-            return "That username is already taken."
-
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
-
-        <main class="page">
-
-            <div class="auth card">
-
-                <h1>Join Heara</h1>
-
-                <form method="post">
-
-                    <input
-                        class="input"
-                        name="username"
-                        placeholder="Username"
-                        required
-                    >
-
-                    <input
-                        class="input"
-                        type="password"
-                        name="password"
-                        placeholder="Password"
-                        required
-                    >
-
-                    <button class="btn">
-                        Create account
-                    </button>
-
-                </form>
-
-                <p class="muted" style="margin-top:20px">
-                    Already have an account?
-                    <a href="{{ url_for('login') }}">
-                        Login
-                    </a>
-                </p>
-
-            </div>
-
-        </main>
-
-        """),
-        title="Register",
-        user=None
+    data, error = pexels_request(
+        f"videos/videos/{video_id}",
+        {}
     )
 
+    if error or not data:
+        return redirect(url_for("fyp"))
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
+    link = choose_video_file(data)
 
-    if request.method == "POST":
+    if not link:
+        return redirect(url_for("fyp"))
 
-        username = request.form.get("username", "").strip().lower()
-        password = request.form.get("password", "")
+    user = data.get("user") or {}
 
-        con = db()
+    content = f"""
+    <main class="container">
 
-        user = con.execute("""
-            SELECT * FROM users
-            WHERE username=? AND password=?
-        """, (username, password)).fetchone()
+        <div class="card" style="max-width:700px;margin:auto;">
 
-        con.close()
+            <video
+                src="{link}"
+                poster="{data.get("image", "")}"
+                controls
+                autoplay
+                playsinline
+                class="post-media">
+            </video>
 
-        if user:
+            <h2>
+                Discover this video on Heara
+            </h2>
 
-            session["user_id"] = user["id"]
+            <p>
+                Video by
+                <strong>{user.get("name", "Pexels creator")}</strong>
+                on Pexels.
+            </p>
 
-            return redirect(url_for("home"))
+            <a
+                class="btn"
+                href="{url_for('fyp')}">
+                Open Heara FYP
+            </a>
 
-        return "Incorrect username or password."
+        </div>
 
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
+    </main>
+    """
 
-        <main class="page">
-
-            <div class="auth card">
-
-                <h1>Welcome back</h1>
-
-                <form method="post">
-
-                    <input
-                        class="input"
-                        name="username"
-                        placeholder="Username"
-                        required
-                    >
-
-                    <input
-                        class="input"
-                        type="password"
-                        name="password"
-                        placeholder="Password"
-                        required
-                    >
-
-                    <button class="btn">
-                        Login
-                    </button>
-
-                </form>
-
-                <p class="muted" style="margin-top:20px">
-                    Don't have an account?
-                    <a href="{{ url_for('register') }}">
-                        Create one
-                    </a>
-                </p>
-
-            </div>
-
-        </main>
-
-        """),
-        title="Login",
-        user=None
-    )
-
-
-@app.route("/logout")
-def logout():
-
-    session.clear()
-
-    return redirect(url_for("home"))
+    return render_page("Shared Video", content)
 
 
 # ============================================================
@@ -2450,165 +3074,141 @@ def logout():
 
 @app.route("/api/me")
 def api_me():
-
     user = current_user()
 
     if not user:
         return jsonify({
-            "logged_in":False
+            "logged_in": False
         })
 
     return jsonify({
-        "logged_in":True,
-        "id":user["id"],
-        "username":user["username"],
-        "followers":user["followers"]
+        "logged_in": True,
+        "user": dict(user)
     })
 
 
 @app.route("/api/fyp")
 def api_fyp():
+    page = max(
+        1,
+        request.args.get("page", 1, type=int)
+    )
 
-    con = db()
+    query = request.args.get("q", "").strip() or None
 
-    videos = con.execute("""
-        SELECT posts.id,
-               posts.caption,
-               posts.media_url,
-               posts.likes,
-               posts.views,
-               users.username
-        FROM posts
-        JOIN users ON users.id=posts.user_id
-        WHERE posts.media_type='video'
-          AND posts.media_url != ''
-        ORDER BY posts.id DESC
-        LIMIT 100
-    """).fetchall()
+    videos, error = get_pexels_videos(
+        page,
+        query
+    )
 
-    con.close()
-
-    return jsonify([dict(v) for v in videos])
+    return jsonify({
+        "ok": not bool(error),
+        "error": error,
+        "page": page,
+        "videos": videos
+    })
 
 
 @app.route("/api/view/<int:post_id>", methods=["POST"])
 def api_view(post_id):
+    connection = db()
 
-    con = db()
-
-    con.execute("""
+    connection.execute("""
         UPDATE posts
-        SET views=views+1
-        WHERE id=?
+        SET views = COALESCE(views, 0) + 1
+        WHERE id = ?
     """, (post_id,))
 
-    con.commit()
-    con.close()
+    connection.commit()
 
-    return jsonify({"ok":True})
+    row = connection.execute(
+        "SELECT views FROM posts WHERE id = ?",
+        (post_id,)
+    ).fetchone()
 
+    connection.close()
 
-# ============================================================
-# HEALTH CHECK
-# ============================================================
+    return jsonify({
+        "ok": True,
+        "views": row["views"] if row else 0
+    })
+
 
 @app.route("/health")
 def health():
-
     try:
+        connection = db()
 
-        con = db()
-        con.execute("SELECT 1")
-        con.close()
+        connection.execute(
+            "SELECT 1"
+        ).fetchone()
+
+        connection.close()
+
+        pexels_status = bool(PEXELS_API_KEY)
 
         return jsonify({
-            "status":"ok",
-            "service":"Heara"
+            "status": "ok",
+            "service": "Heara",
+            "database": "ok",
+            "pexels_key_configured": pexels_status
         })
 
-    except Exception as e:
-
+    except Exception as error:
         return jsonify({
-            "status":"error",
-            "error":str(e)
+            "status": "error",
+            "service": "Heara",
+            "error": str(error)
         }), 500
 
 
 # ============================================================
-# ERROR PAGES
+# ERRORS
 # ============================================================
 
 @app.errorhandler(404)
 def not_found(error):
+    content = """
+    <main class="container">
+        <div class="card" style="text-align:center;">
+            <h1>404</h1>
+            <p class="muted">
+                That Heara page doesn't exist.
+            </p>
+            <a class="btn" href="/">Go home</a>
+        </div>
+    </main>
+    """
 
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
-
-        <main class="page">
-
-            <div class="card" style="text-align:center">
-
-                <h1 style="font-size:80px">404</h1>
-
-                <p class="muted">
-                    This Heara page doesn't exist.
-                </p>
-
-                <br>
-
-                <a class="btn" href="{{ url_for('home') }}">
-                    Go Home
-                </a>
-
-            </div>
-
-        </main>
-
-        """),
-        title="Not Found",
-        user=current_user()
-    ), 404
+    return render_page("Not Found", content), 404
 
 
 @app.errorhandler(500)
 def server_error(error):
+    content = """
+    <main class="container">
+        <div class="card" style="text-align:center;">
+            <h1>Something went wrong.</h1>
 
-    return render_template_string(
-        PAGE.replace("{% block content %}{% endblock %}", """
+            <p class="muted">
+                Heara encountered a server error.
+            </p>
 
-        <main class="page">
+            <a class="btn" href="/">
+                Try again
+            </a>
+        </div>
+    </main>
+    """
 
-            <div class="card">
-
-                <h1>Heara had a problem.</h1>
-
-                <p class="muted" style="margin-top:12px">
-                    The server encountered an error.
-                    Please try again.
-                </p>
-
-                <br>
-
-                <a class="btn" href="{{ url_for('home') }}">
-                    Return Home
-                </a>
-
-            </div>
-
-        </main>
-
-        """),
-        title="Server Error",
-        user=current_user()
-    ), 500
+    return render_page("Error", content), 500
 
 
 # ============================================================
-# RUN
+# START
 # ============================================================
 
 if __name__ == "__main__":
-
     port = int(os.environ.get("PORT", 5000))
 
     app.run(
